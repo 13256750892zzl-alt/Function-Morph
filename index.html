@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<!-- 函数图像变换演示器：单文件 HTML，所有 HTML/CSS/JS 内联，依赖通过 CDN 引入 -->
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <!-- 视口设置：保证移动端响应式适配 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>函数图像变换演示器</title>
+
+    <!-- Tailwind CSS v3（Play CDN）：用于快速构建深色科技风界面 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- math.js：用于解析与求值函数表达式 -->
+    <script src="https://cdn.jsdelivr.net/npm/mathjs@12.4.1/lib/browser/math.js"></script>
+    <!-- KaTeX 样式与脚本：用于渲染数学公式 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+
+    <script>
+        // Tailwind 自定义主题：登记项目主色调（霓虹粉为主，冰蓝为辅）与科技黑背景
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        techbg: '#0d1117',     // 画布/页面深色科技黑背景
+                        techpanel: '#161b22',  // 面板底色
+                        neonpink: '#ff2e97',   // 目标曲线主色调（霓虹粉）
+                        iceblue: '#39d3ff',    // 强调/辅助色（冰蓝）
+                        neongreen: '#39d3bb'   // 网格主轴荧光色
+                    }
+                }
+            }
+        };
+    </script>
+
+    <style>
+        /* 全局基础样式：深色背景、隐藏溢出滚动条的粗糙表现 */
+        html, body {
+            height: 100%;                /* 占满视口高度 */
+            margin: 0;                   /* 清除默认外边距 */
+            background-color: #0d1117;   /* 科技黑背景 */
+            color: #e6edf3;              /* 默认浅色文字，深色背景下可读 */
+            font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; /* 跨平台字体 */
+        }
+
+        /* 磨砂玻璃面板：半透明 + 背景模糊 + 细边框 + 阴影 */
+        .glass {
+            background: rgba(22, 27, 34, 0.55);            /* 半透明底色 */
+            -webkit-backdrop-filter: blur(12px);           /* Safari 兼容前缀 */
+            backdrop-filter: blur(12px);                   /* 背景模糊（磨砂玻璃核心） */
+            border: 1px solid rgba(57, 211, 255, 0.18);    /* 冰蓝细边框 */
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);    /* 柔和阴影增强悬浮感 */
+        }
+
+        /* 自定义滚动条（左栏内容过多时） */
+        .scroll-thin::-webkit-scrollbar { width: 6px; }
+        .scroll-thin::-webkit-scrollbar-thumb { background: rgba(57, 211, 255, 0.25); border-radius: 3px; }
+
+        /* 速度滑块样式：让滑块呈现霓虹质感 */
+        input[type="range"] { accent-color: #ff2e97; }
+
+        /* 步骤项高亮动效：当前步骤完成后用霓虹边框高亮 */
+        .step-active {
+            border-color: #ff2e97 !important;                 /* 高亮边框为霓虹粉 */
+            box-shadow: 0 0 12px rgba(255, 46, 151, 0.6);     /* 外发光 */
+            background: rgba(255, 46, 151, 0.08);             /* 轻微底色 */
+        }
+
+        /* 按钮基础样式：科技感胶囊按钮 */
+        .ctrl-btn {
+            transition: all 0.2s ease;                        /* 悬停过渡 */
+        }
+        .ctrl-btn:hover:not(:disabled) {
+            border-color: #39d3ff;                            /* 悬停时冰蓝边框 */
+            box-shadow: 0 0 10px rgba(57, 211, 255, 0.4);     /* 悬停发光 */
+        }
+        .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; } /* 禁用态 */
+    </style>
+</head>
+
+<body class="overflow-hidden">
+    <!-- ===================== 顶部标题栏 ===================== -->
+    <header class="h-14 flex items-center px-5 border-b border-white/10 bg-techpanel/60">
+        <!-- 标题文字：包含项目名与副标题 -->
+        <h1 class="text-lg md:text-xl font-bold tracking-wide">
+            <span class="text-neonpink">函数图像变换演示器</span>
+            <span class="mx-2">📐</span>
+            <span class="text-iceblue text-sm md:text-base font-normal">高中数学可视化教学工具</span>
+        </h1>
+    </header>
+
+    <!-- ===================== 主体：左控制栏 + 右画布 ===================== -->
+    <!-- 使用 flex 布局；窄屏下改为纵向排列（画布在上、控制栏在下） -->
+    <main class="flex flex-col-reverse md:flex-row h-[calc(100vh-3.5rem)]">
+
+        <!-- --------- 左侧控制栏 --------- -->
+        <aside class="w-full md:w-80 lg:w-96 shrink-0 border-t md:border-t-0 md:border-r border-white/10 bg-techpanel/40 overflow-y-auto scroll-thin p-4 space-y-5">
+
+            <!-- 基本函数选择 -->
+            <section>
+                <h2 class="text-sm font-semibold text-iceblue mb-2">📊 基本函数选择</h2>
+                <div class="space-y-1.5" id="baseFuncGroup">
+                    <!-- 三个单选按钮，默认选中 y=x² -->
+                    <label class="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white/5">
+                        <input type="radio" name="baseFunc" value="x" class="accent-neonpink" />
+                        <span>y = x</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white/5">
+                        <input type="radio" name="baseFunc" value="x2" class="accent-neonpink" checked />
+                        <span>y = x²</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white/5">
+                        <input type="radio" name="baseFunc" value="x3" class="accent-neonpink" />
+                        <span>y = x³</span>
+                    </label>
+                </div>
+            </section>
+
+            <!-- 目标函数输入 -->
+            <section>
+                <h2 class="text-sm font-semibold text-iceblue mb-2">✏️ 输入目标函数</h2>
+                <!-- 输入框：支持任意表达式，默认填入示例 -->
+                <div class="flex items-center gap-1 bg-techbg/70 rounded px-2 py-1 border border-white/10">
+                    <span class="text-white/50 select-none">y =</span>
+                    <input id="targetInput" type="text" value="-2(x-1)^2+3"
+                           class="flex-1 bg-transparent outline-none text-neonpink py-1"
+                           placeholder="例如 -2(x-1)^2+3" />
+                </div>
+                <!-- 公式实时预览（KaTeX 渲染） -->
+                <div id="formulaPreview" class="mt-2 min-h-[2rem] text-center text-white/90 overflow-x-auto"></div>
+                <!-- 错误提示区 -->
+                <div id="parseError" class="text-xs text-red-400 mt-1 hidden"></div>
+            </section>
+
+            <!-- 变换步骤分解 -->
+            <section>
+                <h2 class="text-sm font-semibold text-iceblue mb-2">🎬 变换步骤分解</h2>
+                <ol id="stepList" class="space-y-2 text-sm"></ol>
+            </section>
+
+            <!-- 动画控制 -->
+            <section>
+                <h2 class="text-sm font-semibold text-iceblue mb-2">⏯️ 动画控制</h2>
+                <div class="flex items-center gap-2">
+                    <!-- 上一步 -->
+                    <button id="btnPrev" title="上一步"
+                            class="ctrl-btn flex-1 py-2 rounded border border-white/15 bg-techbg/60">◀</button>
+                    <!-- 播放/暂停 -->
+                    <button id="btnPlay" title="播放/暂停"
+                            class="ctrl-btn flex-1 py-2 rounded border border-white/15 bg-techbg/60">▶</button>
+                    <!-- 下一步 -->
+                    <button id="btnNext" title="下一步"
+                            class="ctrl-btn flex-1 py-2 rounded border border-white/15 bg-techbg/60">▶|</button>
+                    <!-- 重播 -->
+                    <button id="btnReplay" title="重播"
+                            class="ctrl-btn flex-1 py-2 rounded border border-white/15 bg-techbg/60">↺</button>
+                </div>
+                <!-- 速度滑块：0.5x ~ 2x -->
+                <div class="mt-3">
+                    <div class="flex justify-between text-xs text-white/60 mb-1">
+                        <span>速度</span>
+                        <span id="speedLabel">1.0x</span>
+                    </div>
+                    <input id="speedSlider" type="range" min="0.5" max="2" step="0.1" value="1" class="w-full" title="动画速度" aria-label="动画速度" />
+                </div>
+            </section>
+        </aside>
+
+        <!-- --------- 右侧画布区 --------- -->
+        <div class="relative flex-1 min-h-[300px]">
+            <!-- Canvas 画布：尺寸由 JS 根据容器动态设置 -->
+            <canvas id="plot" class="block w-full h-full"></canvas>
+
+            <!-- 悬浮磨砂玻璃数据面板（叠加在画布右上角） -->
+            <div class="glass absolute top-4 right-4 rounded-xl p-4 w-64 text-sm pointer-events-none select-none">
+                <h3 class="text-iceblue font-semibold mb-2 text-xs tracking-wider">当前函数特征</h3>
+                <!-- 当前解析式（KaTeX 渲染） -->
+                <div class="mb-2">
+                    <div class="text-white/50 text-xs">解析式</div>
+                    <div id="dataExpr" class="text-white/90 overflow-x-auto"></div>
+                </div>
+                <!-- 顶点 / 对称中心 -->
+                <div class="mb-2">
+                    <div class="text-white/50 text-xs" id="vertexLabel">顶点</div>
+                    <div id="dataVertex" class="text-neonpink"></div>
+                </div>
+                <!-- 对称轴 -->
+                <div class="mb-2">
+                    <div class="text-white/50 text-xs">对称轴 / 开口</div>
+                    <div id="dataAxis" class="text-iceblue"></div>
+                </div>
+                <!-- 鼠标坐标 -->
+                <div>
+                    <div class="text-white/50 text-xs">鼠标坐标</div>
+                    <div id="dataMouse" class="text-white/70">—</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+    // =====================================================================
+    // 配置区：集中管理颜色、网格、动画时长等常量，避免魔法数字散落
+    // =====================================================================
+    const CONFIG = {
+        bg: '#0d1117',                 // 画布背景色
+        gridMinor: 'rgba(120,140,170,0.10)', // 次网格线颜色（暗色几何线）
+        gridMajor: 'rgba(57,211,187,0.18)',  // 主网格线颜色（轻微荧光绿）
+        axis: 'rgba(57,211,255,0.55)',       // 坐标轴颜色（冰蓝）
+        baseCurve: 'rgba(230,237,243,0.45)', // 母函数参照虚线颜色（半透明白）
+        neon: '#ff2e97',                // 目标/当前曲线主色（霓虹粉）
+        neonAccent: '#39d3ff',          // 强调色（冰蓝）
+        glowBlur: 16,                   // 霓虹外发光模糊半径
+        stepDuration: 1200,             // 每步动画基准时长（毫秒）
+        defaultScale: 40,               // 默认缩放：每个单位对应的像素数
+        minScale: 12,                   // 最小缩放
+        maxScale: 160,                  // 最大缩放
+        plotStepPx: 2                   // 曲线采样步长（像素），越小越平滑
+    };
+
+    // 缓动函数 easeInOutQuad：t∈[0,1]，先加速后减速，动画更丝滑
+    function easeInOutQuad(t) {
+        // 前半段二次加速，后半段二次减速
+        return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    }
+
+    // 数值近似相等判断（浮点误差容忍）
+    function approxEqual(a, b, eps = 1e-6) {
+        return Math.abs(a - b) < eps; // 差值小于阈值即视为相等
+    }
+
+    // =====================================================================
+    // 基函数定义：y=x、y=x²、y=x³ 各自的求值函数与中文名、指数
+    // =====================================================================
+    const BASE_FUNCS = {
+        x:  { name: 'x',  power: 1, latex: 'y=x',   f: (x) => x },          // 一次函数
+        x2: { name: 'x²', power: 2, latex: 'y=x^2', f: (x) => x * x },      // 二次函数
+        x3: { name: 'x³', power: 3, latex: 'y=x^3', f: (x) => x * x * x }   // 三次函数
+    };
+
+    // =====================================================================
+    // 全局状态：集中存放视图、动画、解析结果，避免散落的全局变量
+    // =====================================================================
+    const state = {
+        baseKey: 'x2',          // 当前选中的基函数键（默认 y=x²）
+        params: null,           // 解析出的标准形式参数 {a, h, k}
+        steps: [],              // 变换步骤数组（每步含描述与目标参数快照）
+        snapshots: [],          // 每步完成后的参数快照（用于动画插值）
+        currentStep: -1,        // 当前已完成到的步骤索引（-1 表示尚未开始）
+        // 动画运行时状态
+        anim: {
+            running: false,     // 是否正在播放某一步动画
+            playingAll: false,  // 是否处于连续播放模式
+            startTime: 0,       // 当前步动画起始时间戳
+            from: null,         // 动画起点参数快照
+            to: null,           // 动画终点参数快照
+            duration: CONFIG.stepDuration, // 当前步时长
+            current: null       // 当前帧实时插值出的参数（用于绘制）
+        },
+        speed: 1,               // 动画速度倍率（0.5x~2x）
+        // 视图状态（缩放与平移）
+        view: {
+            scale: CONFIG.defaultScale, // 每单位像素数
+            targetScale: CONFIG.defaultScale, // 缩放目标值（用于淡入淡出过渡）
+            originX: 0,         // 原点屏幕坐标 x（像素），初始化时居中
+            originY: 0           // 原点屏幕坐标 y（像素）
+        },
+        mouse: { x: null, y: null, inside: false }, // 鼠标在画布内的像素坐标
+        // 顶点闪烁动画相关
+        vertexFlash: { active: false, start: 0 }
+    };
+
+    // =====================================================================
+    // DOM 引用：集中获取，便于后续使用
+    // =====================================================================
+    const dom = {
+        canvas: document.getElementById('plot'),               // 画布元素
+        targetInput: document.getElementById('targetInput'),   // 函数输入框
+        formulaPreview: document.getElementById('formulaPreview'), // 公式预览
+        parseError: document.getElementById('parseError'),     // 错误提示
+        stepList: document.getElementById('stepList'),          // 步骤列表
+        btnPrev: document.getElementById('btnPrev'),            // 上一步按钮
+        btnPlay: document.getElementById('btnPlay'),            // 播放/暂停按钮
+        btnNext: document.getElementById('btnNext'),            // 下一步按钮
+        btnReplay: document.getElementById('btnReplay'),        // 重播按钮
+        speedSlider: document.getElementById('speedSlider'),    // 速度滑块
+        speedLabel: document.getElementById('speedLabel'),      // 速度数值标签
+        dataExpr: document.getElementById('dataExpr'),          // 数据面板：解析式
+        dataVertex: document.getElementById('dataVertex'),      // 数据面板：顶点
+        vertexLabel: document.getElementById('vertexLabel'),    // 数据面板：顶点标签文字
+        dataAxis: document.getElementById('dataAxis'),          // 数据面板：对称轴
+        dataMouse: document.getElementById('dataMouse')         // 数据面板：鼠标坐标
+    };
+    const ctx = dom.canvas.getContext('2d'); // 2D 绘图上下文
+
+    // =====================================================================
+    // 数学解析模块：用 math.js 解析目标表达式并反推标准形式参数 (a, h, k)
+    // 模型：g(x) = a * f(x - h) + k，其中 f 为当前基函数（横向伸缩 b=1 并入 a）
+    // =====================================================================
+
+    // 预处理用户输入：去掉前缀 y=、统一上标与减号、便于 math.js 解析
+    function sanitizeExpr(raw) {
+        let s = raw.trim();                       // 去首尾空白
+        s = s.replace(/^y\s*=\s*/i, '');          // 去掉可能的 "y=" 前缀
+        s = s.replace(/²/g, '^2').replace(/³/g, '^3'); // 上标转 ^2 / ^3
+        s = s.replace(/[−–—]/g, '-');             // 各种 Unicode 减号转普通减号
+        s = s.replace(/×/g, '*').replace(/·/g, '*'); // 乘号统一为 *
+        return s;                                  // 返回清洗后的表达式
+    }
+
+    // 用 math.js 编译表达式，返回一个 (x)=>y 的求值函数；失败抛出异常
+    function compileExpr(expr) {
+        const node = math.parse(expr);            // 解析为表达式树（隐式乘法如 2(x-1) 受支持）
+        const code = node.compile();              // 编译以加速反复求值
+        return (x) => code.evaluate({ x });       // 返回闭包：给定 x 求 y
+    }
+
+    // 根据基函数指数，通过采样反推标准形式参数 {a, h, k}
+    // 思路：把 g(x) 视为多项式，用有限差分求系数后换算到顶点式
+    function fitParams(baseKey, evalFn) {
+        const power = BASE_FUNCS[baseKey].power;  // 基函数次数
+        if (power === 1) {
+            // 一次函数：g(x)=A·x+B；横向平移对直线冗余，故 h=0，k=B
+            const B = evalFn(0);                  // 截距
+            const A = evalFn(1) - evalFn(0);      // 斜率
+            return { a: A, h: 0, k: B };          // 纵向伸缩 A、纵向平移 B
+        } else if (power === 2) {
+            // 二次函数：g(x)=A·x²+B·x+C，用三点采样求系数
+            const C = evalFn(0);                  // 常数项 = g(0)
+            const A = (evalFn(1) + evalFn(-1) - 2 * C) / 2; // 二次项系数
+            const B = (evalFn(1) - evalFn(-1)) / 2;          // 一次项系数
+            const h = -B / (2 * A);               // 顶点横坐标 = -B/(2A)
+            const k = C - (B * B) / (4 * A);      // 顶点纵坐标
+            return { a: A, h, k };                // a 即开口/伸缩系数
+        } else {
+            // 三次函数：g(x)=A·x³+B·x²+C·x+D，用四点采样求系数
+            const D = evalFn(0);                  // 常数项 = g(0)
+            const g1 = evalFn(1), gm1 = evalFn(-1), g2 = evalFn(2); // 采样点
+            // 由 g(1)、g(-1) 消去得到组合，逐步解出 A、B、C
+            const A = (g2 - 3 * g1 + 3 * D - gm1) / 6; // 三次项系数（标准有限差分）
+            const B = (g1 + gm1 - 2 * D) / 2;          // 二次项系数
+            const C = (g1 - gm1) / 2 - A;              // 一次项系数
+            // 标准形式 a(x-h)³+k 中无二次项时 h=-B/(3A)；按此近似求拐点
+            const h = approxEqual(A, 0) ? 0 : -B / (3 * A); // 拐点横坐标
+            const k = evalFn(h);                   // 拐点纵坐标 = g(h)
+            return { a: A, h, k };                 // a 为伸缩/翻转系数
+        }
+    }
+
+    // =====================================================================
+    // 变换链构建模块：根据参数与基函数，按教学顺序生成有序步骤
+    // 顺序：本体现身 → 左右平移(h) → 纵向伸缩+翻转(a) → 上下平移(k)
+    // =====================================================================
+    function buildSteps(baseKey, params) {
+        const { a, h, k } = params;               // 解构参数
+        const power = BASE_FUNCS[baseKey].power;   // 基函数次数
+        const steps = [];                          // 步骤数组
+
+        // 第一步：本体现身（绘制基函数）。drawn 表示绘制进度参数
+        steps.push({
+            title: '本体现身',
+            desc: `荧光线平滑绘制出标准函数 ${BASE_FUNCS[baseKey].latex}`,
+            // 该步完成后的完整参数快照：未平移、系数为1、未升降、绘制完成
+            snapshot: { ha: 0, aa: 1, ka: 0, drawn: 1 }
+        });
+
+        // 第二步：左右平移（仅当 h 不为 0；一次函数 h 恒为 0 故跳过）
+        if (!approxEqual(h, 0)) {
+            const dir = h > 0 ? '右' : '左';        // h>0 向右、h<0 向左
+            steps.push({
+                title: '左右平移',
+                desc: `左加右减：x → (x${h > 0 ? '-' : '+'}${Math.abs(h)})，向${dir}平移 ${Math.abs(h)} 个单位`,
+                snapshot: { ha: h, aa: 1, ka: 0, drawn: 1 } // 平移到位，其余不变
+            });
+        }
+
+        // 第三步：纵向伸缩与翻转（仅当 a 不等于 1 时）
+        if (!approxEqual(a, 1)) {
+            const parts = [];                       // 组合提示文字
+            if (a < 0) parts.push(power === 2 ? '系数为负：开口向下' : '系数为负：关于 x 轴翻转'); // 翻转说明
+            const absA = Math.abs(a);               // 伸缩倍数
+            if (!approxEqual(absA, 1)) {
+                // 伸缩说明：>1 为拉伸，<1 为压缩
+                parts.push(`系数为 ${absA}：纵坐标${absA > 1 ? '拉伸' : '压缩'}为原来的 ${absA} 倍`);
+            }
+            steps.push({
+                title: '伸缩与翻转',
+                desc: parts.join('；'),
+                snapshot: { ha: h, aa: a, ka: 0, drawn: 1 } // 应用系数 a
+            });
+        }
+
+        // 第四步：上下平移（仅当 k 不为 0 时）
+        if (!approxEqual(k, 0)) {
+            const dir = k > 0 ? '上' : '下';         // k>0 向上、k<0 向下
+            steps.push({
+                title: '上下平移',
+                desc: `上加下减：${k > 0 ? '+' : '-'}${Math.abs(k)}，向${dir}平移 ${Math.abs(k)} 个单位`,
+                snapshot: { ha: h, aa: a, ka: k, drawn: 1 } // 应用上下平移 k
+            });
+        }
+
+        return steps;                               // 返回完整步骤链
+    }
+
+    // =====================================================================
+    // 坐标变换工具：数学坐标 <-> 屏幕像素坐标
+    // =====================================================================
+    function toScreenX(mx) { return state.view.originX + mx * state.view.scale; } // 数学x→像素x
+    function toScreenY(my) { return state.view.originY - my * state.view.scale; } // 数学y→像素y（y轴向下取反）
+    function toMathX(px) { return (px - state.view.originX) / state.view.scale; } // 像素x→数学x
+    function toMathY(py) { return (state.view.originY - py) / state.view.scale; } // 像素y→数学y
+
+    // 计算某组参数下的函数值：y = aa * f(x - ha) + ka
+    function evalTransformed(p, x) {
+        const f = BASE_FUNCS[state.baseKey].f;      // 当前基函数
+        return p.aa * f(x - p.ha) + p.ka;           // 套用平移/伸缩/翻转
+    }
+
+    // =====================================================================
+    // Canvas 渲染模块
+    // =====================================================================
+
+    // 根据容器尺寸与设备像素比设置画布分辨率，避免高分屏模糊
+    function resizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;   // 设备像素比
+        const rect = dom.canvas.getBoundingClientRect(); // 画布显示尺寸
+        dom.canvas.width = Math.round(rect.width * dpr);  // 物理像素宽
+        dom.canvas.height = Math.round(rect.height * dpr); // 物理像素高
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);      // 缩放上下文以匹配 dpr
+        // 若原点尚未初始化或需要居中，则把原点放在画布中心
+        state.view.originX = rect.width / 2;         // 水平居中
+        state.view.originY = rect.height / 2;        // 垂直居中
+    }
+
+    // 绘制网格与坐标轴
+    function drawGrid(w, h) {
+        const scale = state.view.scale;              // 当前缩放
+        // 动态决定网格间隔（单位），保证屏幕上网格疏密适中
+        let unit = 1;                                // 网格步长（数学单位）
+        const targetPx = 60;                         // 期望的网格像素间距
+        while (unit * scale < targetPx) unit *= 2;   // 太密则放大步长
+        while (unit * scale > targetPx * 2) unit /= 2; // 太疏则减小步长
+
+        // 计算可见数学范围
+        const xMin = toMathX(0), xMax = toMathX(w);  // 可见 x 区间
+        const yMin = toMathY(h), yMax = toMathY(0);  // 可见 y 区间
+
+        ctx.lineWidth = 1;                           // 网格线宽
+        // 绘制竖向网格线
+        for (let x = Math.ceil(xMin / unit) * unit; x <= xMax; x += unit) {
+            const sx = toScreenX(x);                 // 该网格线屏幕 x
+            ctx.strokeStyle = approxEqual(x, 0) ? CONFIG.axis : CONFIG.gridMinor; // x=0 用坐标轴色
+            ctx.beginPath();
+            ctx.moveTo(sx, 0); ctx.lineTo(sx, h);    // 从顶到底
+            ctx.stroke();
+        }
+        // 绘制横向网格线
+        for (let y = Math.ceil(yMin / unit) * unit; y <= yMax; y += unit) {
+            const sy = toScreenY(y);                 // 该网格线屏幕 y
+            ctx.strokeStyle = approxEqual(y, 0) ? CONFIG.axis : CONFIG.gridMinor; // y=0 用坐标轴色
+            ctx.beginPath();
+            ctx.moveTo(0, sy); ctx.lineTo(w, sy);    // 从左到右
+            ctx.stroke();
+        }
+
+        // 绘制坐标轴刻度数字
+        ctx.fillStyle = 'rgba(230,237,243,0.5)';     // 刻度文字颜色
+        ctx.font = '11px sans-serif';                // 刻度字体
+        ctx.textAlign = 'center';
+        for (let x = Math.ceil(xMin / unit) * unit; x <= xMax; x += unit) {
+            if (approxEqual(x, 0)) continue;         // 原点不重复标注
+            ctx.fillText(formatNum(x), toScreenX(x), toScreenY(0) + 14); // x 轴刻度
+        }
+        ctx.textAlign = 'right';
+        for (let y = Math.ceil(yMin / unit) * unit; y <= yMax; y += unit) {
+            if (approxEqual(y, 0)) continue;         // 原点不重复标注
+            ctx.fillText(formatNum(y), toScreenX(0) - 6, toScreenY(y) + 4); // y 轴刻度
+        }
+    }
+
+    // 数字格式化：去除多余小数位
+    function formatNum(n) {
+        const r = Math.round(n * 100) / 100;         // 保留两位小数
+        return Number.isInteger(r) ? String(r) : r.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+    }
+
+    // 绘制一条函数曲线
+    // p: 参数快照；style: 颜色；opts: { dash 虚线, glow 发光, drawn 绘制进度 }
+    function drawCurve(p, style, opts = {}) {
+        const w = dom.canvas.getBoundingClientRect().width;  // 画布宽
+        const dash = opts.dash || null;              // 虚线样式
+        const glow = opts.glow || false;             // 是否外发光
+        const drawn = opts.drawn !== undefined ? opts.drawn : 1; // 绘制进度（本体现身用）
+
+        ctx.save();                                  // 保存绘图状态
+        ctx.strokeStyle = style;                     // 线条颜色
+        ctx.lineWidth = glow ? 3 : 1.6;              // 发光线更粗
+        ctx.globalAlpha = opts.alpha !== undefined ? opts.alpha : 1; // 透明度（残影用）
+        if (dash) ctx.setLineDash(dash);             // 设置虚线
+        if (glow) {                                  // 霓虹外发光效果
+            ctx.shadowColor = style;                 // 阴影颜色同线条色
+            ctx.shadowBlur = CONFIG.glowBlur;        // 模糊半径
+        }
+
+        // 本体现身阶段：以基函数锚点 ha 为中心，向两侧逐渐展开绘制
+        const xMinFull = toMathX(0);                 // 可见左边界
+        const xMaxFull = toMathX(w);                 // 可见右边界
+        const halfSpan = Math.max(Math.abs(xMaxFull - p.ha), Math.abs(xMinFull - p.ha)); // 最大半跨度
+        const reveal = halfSpan * drawn;             // 当前已展开的半跨度
+
+        ctx.beginPath();                             // 开始路径
+        let started = false;                         // 是否已落笔
+        for (let px = 0; px <= w; px += CONFIG.plotStepPx) {
+            const x = toMathX(px);                   // 像素转数学 x
+            if (Math.abs(x - p.ha) > reveal) {       // 超出已展开范围则跳过（实现绘制动画）
+                started = false;                     // 断开路径
+                continue;
+            }
+            const y = evalTransformed(p, x);         // 求函数值
+            if (!isFinite(y)) { started = false; continue; } // 跳过非有限值
+            const sy = toScreenY(y);                 // 转屏幕 y
+            if (!started) { ctx.moveTo(px, sy); started = true; } // 起笔
+            else ctx.lineTo(px, sy);                 // 连线
+        }
+        ctx.stroke();                                // 描边
+        ctx.restore();                               // 恢复绘图状态
+    }
+
+    // 绘制鼠标悬停的十字准星与坐标/函数值
+    function drawHover() {
+        if (!state.mouse.inside || state.mouse.x === null) return; // 鼠标不在画布内则跳过
+        const px = state.mouse.x, py = state.mouse.y; // 鼠标像素坐标
+        const mx = toMathX(px);                       // 对应数学 x
+        const p = state.anim.current || lastSnapshot(); // 当前显示的曲线参数
+        const my = p ? evalTransformed(p, mx) : toMathY(py); // 曲线在该 x 的函数值
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(57,211,255,0.4)';     // 准星颜色（冰蓝）
+        ctx.setLineDash([4, 4]);                      // 虚线准星
+        ctx.beginPath();
+        ctx.moveTo(px, 0); ctx.lineTo(px, dom.canvas.getBoundingClientRect().height); // 竖线
+        ctx.moveTo(0, py); ctx.lineTo(dom.canvas.getBoundingClientRect().width, py);   // 横线
+        ctx.stroke();
+        ctx.setLineDash([]);                          // 关闭虚线
+
+        // 在曲线上标出该点
+        if (p && isFinite(my)) {
+            const sy = toScreenY(my);                 // 函数值对应屏幕 y
+            ctx.fillStyle = CONFIG.neon;              // 点用霓虹粉
+            ctx.shadowColor = CONFIG.neon; ctx.shadowBlur = 10; // 发光
+            ctx.beginPath();
+            ctx.arc(px, sy, 4, 0, Math.PI * 2);       // 画小圆点
+            ctx.fill();
+        }
+        ctx.restore();
+
+        // 更新数据面板的鼠标坐标显示
+        const yShow = (p && isFinite(my)) ? formatNum(my) : '—'; // 函数值
+        dom.dataMouse.textContent = `x=${formatNum(mx)}, f(x)=${yShow}`;
+    }
+
+    // 绘制顶点闪烁标记（最后一步完成后调用）
+    function drawVertexFlash() {
+        if (!state.vertexFlash.active || !state.params) return; // 未激活则跳过
+        const { h, k } = state.params;                // 顶点/拐点坐标
+        const t = (performance.now() - state.vertexFlash.start) / 1000; // 经过秒数
+        const pulse = 0.5 + 0.5 * Math.sin(t * 4);    // 0~1 周期脉冲（呼吸闪烁）
+        const sx = toScreenX(h), sy = toScreenY(k);   // 顶点屏幕坐标
+
+        ctx.save();
+        ctx.fillStyle = CONFIG.neon;                  // 顶点用霓虹粉
+        ctx.shadowColor = CONFIG.neon;
+        ctx.shadowBlur = 10 + pulse * 20;             // 随脉冲变化的发光强度
+        ctx.beginPath();
+        ctx.arc(sx, sy, 5 + pulse * 3, 0, Math.PI * 2); // 半径随脉冲变化
+        ctx.fill();
+        // 标注坐标文字
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 13px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`(${formatNum(h)}, ${formatNum(k)})`, sx + 10, sy - 10); // 在顶点旁标坐标
+        ctx.restore();
+    }
+
+    // 取得最后一次已完成步骤的参数快照（无动画时的静态显示）
+    function lastSnapshot() {
+        if (state.currentStep < 0) return { ha: 0, aa: 1, ka: 0, drawn: 0 }; // 尚未开始
+        return state.snapshots[state.currentStep];     // 当前步骤快照
+    }
+
+    // 主渲染函数：每帧调用，绘制网格、母函数、残影、当前曲线、悬停、顶点
+    function render() {
+        const rect = dom.canvas.getBoundingClientRect(); // 画布显示尺寸
+        const w = rect.width, h = rect.height;       // 宽高
+
+        ctx.clearRect(0, 0, w, h);                   // 清空画布
+        drawGrid(w, h);                              // 绘制网格与坐标轴
+
+        // 母函数参照：始终以半透明灰色虚线绘制基函数（未做任何变换）
+        drawCurve({ ha: 0, aa: 1, ka: 0 }, CONFIG.baseCurve, { dash: [6, 6], drawn: 1 });
+
+        // 动画进行中：绘制起点状态的淡出残影
+        if (state.anim.running && state.anim.from) {
+            const t = animProgress();                // 当前动画进度
+            drawCurve(state.anim.from, CONFIG.neonAccent, { alpha: 0.25 * (1 - t), drawn: state.anim.from.drawn });
+        }
+
+        // 当前曲线：用实时插值参数（动画中）或最后快照（静止）绘制霓虹发光曲线
+        const cur = state.anim.current || lastSnapshot(); // 当前参数
+        if (state.currentStep >= 0 || state.anim.running) {
+            drawCurve(cur, CONFIG.neon, { glow: true, drawn: cur.drawn }); // 霓虹发光主曲线
+        }
+
+        drawVertexFlash();                           // 顶点闪烁（若激活）
+        drawHover();                                 // 鼠标悬停准星
+    }
+
+    // =====================================================================
+    // 动画引擎模块：requestAnimationFrame 主循环 + easeInOutQuad 缓动
+    // =====================================================================
+
+    // 计算当前步动画的归一化进度（0~1，已应用缓动）
+    function animProgress() {
+        if (!state.anim.running) return 1;            // 未在动画则视为完成
+        const elapsed = performance.now() - state.anim.startTime; // 已用时
+        const raw = Math.min(elapsed / state.anim.duration, 1);   // 线性进度
+        return easeInOutQuad(raw);                    // 应用缓动
+    }
+
+    // 在两个参数快照之间按进度 t 线性插值，得到当前帧参数
+    function lerpSnapshot(from, to, t) {
+        return {
+            ha: from.ha + (to.ha - from.ha) * t,      // 横向平移插值
+            aa: from.aa + (to.aa - from.aa) * t,      // 纵向系数插值（经过0实现丝滑翻转）
+            ka: from.ka + (to.ka - from.ka) * t,      // 纵向平移插值
+            drawn: from.drawn + (to.drawn - from.drawn) * t // 绘制进度插值
+        };
+    }
+
+    // 启动从当前步到目标步的动画
+    function animateTo(targetStep) {
+        if (targetStep < 0 || targetStep >= state.steps.length) return; // 越界保护
+        // 起点：当前步快照（-1 时用初始空白状态）
+        const fromSnap = state.currentStep < 0
+            ? { ha: 0, aa: 1, ka: 0, drawn: 0 }
+            : { ...state.snapshots[state.currentStep] };
+        const toSnap = { ...state.snapshots[targetStep] }; // 终点快照
+
+        state.anim.from = fromSnap;                   // 记录起点
+        state.anim.to = toSnap;                       // 记录终点
+        state.anim.startTime = performance.now();     // 记录起始时间
+        state.anim.duration = CONFIG.stepDuration / state.speed; // 时长随速度调节
+        state.anim.running = true;                    // 标记动画运行
+        state.vertexFlash.active = false;             // 动画期间关闭顶点闪烁
+        state.currentStep = targetStep;               // 目标步设为当前步
+        updateStepHighlight();                        // 更新步骤高亮（动画中即点亮）
+    }
+
+    // 主循环：持续渲染，并在动画结束时收尾
+    function loop() {
+        // 缩放平滑过渡：当前 scale 缓慢逼近目标 scale（实现网格淡入淡出般的细腻感）
+        if (!approxEqual(state.view.scale, state.view.targetScale, 0.01)) {
+            state.view.scale += (state.view.targetScale - state.view.scale) * 0.2; // 指数逼近
+        }
+
+        if (state.anim.running) {                     // 动画进行中
+            const t = animProgress();                 // 当前进度
+            state.anim.current = lerpSnapshot(state.anim.from, state.anim.to, t); // 插值参数
+            if (t >= 1) {                             // 动画完成
+                state.anim.running = false;           // 停止动画
+                state.anim.current = { ...state.anim.to }; // 锁定到终点
+                onStepFinished();                     // 触发步骤完成回调
+            }
+        }
+
+        render();                                     // 渲染当前帧
+        requestAnimationFrame(loop);                  // 预约下一帧，保证 60fps
+    }
+
+    // 单步动画完成后的处理：更新数据面板、判断是否连续播放、是否触发顶点闪烁
+    function onStepFinished() {
+        updateDataPanel();                            // 刷新数据面板
+        // 若已到最后一步，激活顶点闪烁
+        if (state.currentStep === state.steps.length - 1) {
+            state.vertexFlash.active = true;          // 开启闪烁
+            state.vertexFlash.start = performance.now(); // 记录起始时间
+        }
+        // 连续播放模式：自动推进到下一步
+        if (state.anim.playingAll) {
+            if (state.currentStep < state.steps.length - 1) {
+                setTimeout(() => animateTo(state.currentStep + 1), 200); // 略作停顿后继续
+            } else {
+                state.anim.playingAll = false;        // 播完结束
+                dom.btnPlay.textContent = '▶';        // 恢复播放图标
+            }
+        }
+        updateButtons();                              // 刷新按钮可用态
+    }
+
+    // =====================================================================
+    // UI 控制模块：步骤列表渲染、按钮状态、事件绑定
+    // =====================================================================
+
+    // 渲染步骤列表到左栏
+    function renderStepList() {
+        dom.stepList.innerHTML = '';                  // 清空旧列表
+        state.steps.forEach((step, i) => {
+            const li = document.createElement('li');  // 创建步骤项
+            li.className = 'p-2 rounded border border-white/10 bg-techbg/50 transition-all'; // 基础样式
+            li.dataset.index = i;                     // 记录索引
+            // 步骤标题 + 描述
+            li.innerHTML = `<div class="font-semibold text-white/90">${i + 1}. ${step.title}</div>
+                            <div class="text-xs text-white/60 mt-0.5">${step.desc}</div>`;
+            // 点击步骤项可直接跳转到该步
+            li.addEventListener('click', () => {
+                state.anim.playingAll = false;        // 取消连续播放
+                animateTo(i);                         // 动画到该步
+            });
+            dom.stepList.appendChild(li);             // 加入列表
+        });
+        updateStepHighlight();                        // 初始化高亮
+    }
+
+    // 更新当前步骤的高亮样式
+    function updateStepHighlight() {
+        Array.from(dom.stepList.children).forEach((li, i) => {
+            li.classList.toggle('step-active', i === state.currentStep); // 当前步加高亮类
+        });
+    }
+
+    // 更新动画控制按钮的可用状态
+    function updateButtons() {
+        dom.btnPrev.disabled = state.currentStep <= 0;                       // 首步时禁用上一步
+        dom.btnNext.disabled = state.currentStep >= state.steps.length - 1;  // 末步时禁用下一步
+    }
+
+    // 重新解析输入并重建步骤（输入框或基函数变化时调用）
+    function reparse() {
+        const raw = dom.targetInput.value;            // 读取输入
+        dom.parseError.classList.add('hidden');       // 先隐藏错误
+        try {
+            const expr = sanitizeExpr(raw);           // 清洗表达式
+            const evalFn = compileExpr(expr);         // 编译求值函数
+            // 简单校验：在若干点求值，确保结果为有限数
+            [0, 1, -1, 2].forEach((x) => {
+                if (!isFinite(evalFn(x))) throw new Error('函数值无效'); // 非有限值视为非法
+            });
+            const params = fitParams(state.baseKey, evalFn); // 反推参数
+            // 校验拟合是否吻合：抽样比较拟合曲线与原函数
+            verifyFit(evalFn, params);                // 拟合校验（不吻合给出提示）
+
+            state.params = params;                    // 保存参数
+            state.steps = buildSteps(state.baseKey, params); // 构建步骤
+            state.snapshots = state.steps.map((s) => s.snapshot); // 提取快照序列
+            state.currentStep = -1;                   // 重置进度
+            state.anim.running = false;               // 停止动画
+            state.anim.current = null;                // 清空当前帧参数
+            state.anim.playingAll = false;            // 取消连续播放
+            state.vertexFlash.active = false;         // 关闭顶点闪烁
+            dom.btnPlay.textContent = '▶';            // 复位播放图标
+
+            renderFormulaPreview(expr);               // 刷新公式预览
+            renderStepList();                         // 渲染步骤列表
+            updateButtons();                          // 刷新按钮
+            // 默认先展示第一步「本体现身」
+            animateTo(0);
+        } catch (e) {
+            // 解析失败：显示友好错误，不中断页面
+            dom.parseError.textContent = '⚠️ 无法解析该函数，请检查表达式（如 -2(x-1)^2+3）';
+            dom.parseError.classList.remove('hidden');
+        }
+    }
+
+    // 拟合校验：若拟合参数还原的曲线与原函数偏差过大，提示为近似拆解
+    function verifyFit(evalFn, params) {
+        let maxErr = 0;                               // 最大偏差
+        for (let x = -3; x <= 3; x += 0.5) {          // 抽样比较
+            const approx = evalTransformed({ ha: params.h, aa: params.a, ka: params.k }, x); // 拟合值
+            const real = evalFn(x);                   // 真实值
+            if (isFinite(real)) maxErr = Math.max(maxErr, Math.abs(approx - real)); // 更新偏差
+        }
+        if (maxErr > 0.05) {                          // 偏差超过阈值
+            dom.parseError.textContent = 'ℹ️ 该函数非标准形式，已按最接近的标准变换近似演示';
+            dom.parseError.classList.remove('hidden'); // 显示近似提示（非错误）
+        }
+    }
+
+    // 用 KaTeX 渲染输入框对应的公式预览
+    function renderFormulaPreview(expr) {
+        try {
+            // 借助 math.js 把表达式转为 LaTeX，再交给 KaTeX 渲染
+            const tex = math.parse(expr).toTex({ implicit: 'hide' }); // 转 LaTeX
+            katex.render('y = ' + tex, dom.formulaPreview, { throwOnError: false }); // 渲染
+        } catch (e) {
+            dom.formulaPreview.textContent = '';      // 失败则清空预览
+        }
+    }
+
+    // 更新右上角数据面板：解析式、顶点、对称轴、开口方向
+    function updateDataPanel() {
+        if (!state.params) return;                    // 无参数则跳过
+        const { a, h, k } = state.params;             // 解构参数
+        const power = BASE_FUNCS[state.baseKey].power; // 基函数次数
+
+        // 解析式（用 KaTeX 渲染当前完整目标函数）
+        try {
+            const expr = sanitizeExpr(dom.targetInput.value); // 当前表达式
+            const tex = math.parse(expr).toTex({ implicit: 'hide' }); // 转 LaTeX
+            katex.render('y = ' + tex, dom.dataExpr, { throwOnError: false }); // 渲染
+        } catch (e) { dom.dataExpr.textContent = '—'; }
+
+        // 顶点 / 拐点
+        if (power === 2) {
+            dom.vertexLabel.textContent = '顶点';                      // 二次函数称顶点
+            dom.dataVertex.textContent = `(${formatNum(h)}, ${formatNum(k)})`;
+            // 对称轴与开口方向
+            dom.dataAxis.textContent = `x = ${formatNum(h)}；开口${a > 0 ? '向上' : '向下'}`;
+        } else if (power === 3) {
+            dom.vertexLabel.textContent = '对称中心';                  // 三次函数称对称中心
+            dom.dataVertex.textContent = `(${formatNum(h)}, ${formatNum(k)})`;
+            dom.dataAxis.textContent = `中心对称；${a > 0 ? '递增' : '递减'}趋势`;
+        } else {
+            dom.vertexLabel.textContent = '特征点';                    // 一次函数
+            dom.dataVertex.textContent = `斜率 ${formatNum(a)}`;
+            dom.dataAxis.textContent = `截距 ${formatNum(k)}；${a > 0 ? '递增' : '递减'}`;
+        }
+    }
+
+    // =====================================================================
+    // 事件绑定
+    // =====================================================================
+
+    // 基函数单选切换：更新基函数并重新解析
+    document.querySelectorAll('input[name="baseFunc"]').forEach((radio) => {
+        radio.addEventListener('change', (e) => {
+            state.baseKey = e.target.value;           // 更新基函数键
+            reparse();                                // 重新解析与构建步骤
+        });
+    });
+
+    // 函数输入框：输入时实时重新解析（带防抖以兼顾性能）
+    let inputTimer = null;                            // 防抖计时器
+    dom.targetInput.addEventListener('input', () => {
+        clearTimeout(inputTimer);                     // 清除上次计时
+        inputTimer = setTimeout(reparse, 350);        // 350ms 后重新解析
+    });
+
+    // 上一步按钮
+    dom.btnPrev.addEventListener('click', () => {
+        state.anim.playingAll = false;                // 取消连续播放
+        if (state.currentStep > 0) animateTo(state.currentStep - 1); // 回退一步
+    });
+    // 下一步按钮
+    dom.btnNext.addEventListener('click', () => {
+        state.anim.playingAll = false;                // 取消连续播放
+        if (state.currentStep < state.steps.length - 1) animateTo(state.currentStep + 1); // 前进一步
+    });
+    // 播放/暂停按钮
+    dom.btnPlay.addEventListener('click', () => {
+        if (state.anim.playingAll) {                  // 当前正在连续播放 → 暂停
+            state.anim.playingAll = false;            // 停止连续播放
+            dom.btnPlay.textContent = '▶';            // 切换为播放图标
+        } else {                                      // 否则开始连续播放
+            state.anim.playingAll = true;             // 开启连续播放
+            dom.btnPlay.textContent = '⏸';            // 切换为暂停图标
+            // 若已在末步，则从头开始播放
+            const start = state.currentStep >= state.steps.length - 1 ? 0 : state.currentStep + 1;
+            animateTo(Math.max(start, 0));            // 推进动画
+        }
+    });
+    // 重播按钮：回到起点并从第一步重新演示
+    dom.btnReplay.addEventListener('click', () => {
+        state.anim.playingAll = true;                 // 开启连续播放
+        dom.btnPlay.textContent = '⏸';               // 暂停图标
+        state.currentStep = -1;                       // 重置进度
+        animateTo(0);                                 // 从第一步开始
+    });
+
+    // 速度滑块：调节动画速度倍率
+    dom.speedSlider.addEventListener('input', (e) => {
+        state.speed = parseFloat(e.target.value);     // 更新速度
+        dom.speedLabel.textContent = state.speed.toFixed(1) + 'x'; // 更新标签
+    });
+
+    // 鼠标移动：记录画布内坐标用于悬停准星
+    dom.canvas.addEventListener('mousemove', (e) => {
+        const rect = dom.canvas.getBoundingClientRect(); // 画布位置
+        state.mouse.x = e.clientX - rect.left;        // 相对画布 x
+        state.mouse.y = e.clientY - rect.top;         // 相对画布 y
+        state.mouse.inside = true;                    // 标记在画布内
+        if (state.dragging) {                         // 若正在拖拽视图
+            state.view.originX += e.clientX - state.dragLast.x; // 平移原点 x
+            state.view.originY += e.clientY - state.dragLast.y; // 平移原点 y
+            state.dragLast = { x: e.clientX, y: e.clientY };    // 更新拖拽基准
+        }
+    });
+    // 鼠标离开画布：隐藏悬停
+    dom.canvas.addEventListener('mouseleave', () => {
+        state.mouse.inside = false;                   // 标记离开
+        dom.dataMouse.textContent = '—';              // 复位坐标显示
+    });
+    // 鼠标按下：开始拖拽平移视图
+    dom.canvas.addEventListener('mousedown', (e) => {
+        state.dragging = true;                        // 标记拖拽中
+        state.dragLast = { x: e.clientX, y: e.clientY }; // 记录起点
+    });
+    // 鼠标抬起：结束拖拽
+    window.addEventListener('mouseup', () => { state.dragging = false; });
+
+    // 鼠标滚轮：以画布中心为基准平滑缩放视图（targetScale 由主循环指数逼近，呈淡入淡出般细腻过渡）
+    dom.canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();                           // 阻止页面滚动
+        const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12; // 向上放大、向下缩小
+        const newScale = Math.min(CONFIG.maxScale, Math.max(CONFIG.minScale, state.view.targetScale * factor)); // 限幅
+        state.view.targetScale = newScale;            // 设为目标缩放（由主循环平滑过渡）
+    }, { passive: false });
+
+    // 窗口尺寸变化：重设画布并重绘
+    window.addEventListener('resize', () => { resizeCanvas(); });
+
+    // =====================================================================
+    // 初始化：等待 KaTeX 脚本加载后启动
+    // =====================================================================
+    function init() {
+        resizeCanvas();                               // 初始化画布尺寸
+        requestAnimationFrame(loop);                  // 启动主循环
+        reparse();                                    // 解析默认示例并演示
+    }
+
+    // KaTeX 以 defer 加载，确保其就绪后再初始化
+    window.addEventListener('load', init);
+    </script>
+</body>
+</html>

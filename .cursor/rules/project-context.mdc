@@ -1,0 +1,18 @@
+---
+description: 函数图像变换演示器 - 项目背景与技术约束
+alwaysApply: true
+---
+
+# 项目背景
+
+高中数学「函数图像变换演示器」：从 y=x / y=x² / y=x³ 出发，自动拆解目标函数的变换步骤并动画演示。
+详细需求见 `需求文档.md`，任务进度见 `TODO.md`。
+
+# 硬性技术约束（不可违背）
+
+- 全部代码输出在**单个 HTML 文件**（`index.html`），HTML/CSS/JS 内联。
+- 外部依赖只通过 **CDN** 引入：Tailwind CSS v3、math.js、KaTeX。
+- 使用**原生** HTML/CSS/JS + Canvas 2D API，不引入额外框架/构建工具。
+- 动画统一用 `requestAnimationFrame`，目标 60fps，缓动用 easeInOutQuad。
+- 必须兼容 Chrome / Firefox / Edge，且响应式适配。
+- 每行关键代码都要有**中文注释**。
