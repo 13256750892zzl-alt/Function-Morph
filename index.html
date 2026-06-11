@@ -123,6 +123,39 @@
         /* 运算符/动作键用霓虹粉点缀，和数字键区分 */
         .kb-key.kb-accent { color: #ff2e97; }                 /* 运算符/动作键霓虹粉 */
         .kb-key:disabled { opacity: 0.35; cursor: not-allowed; } /* 禁用态（本版本未用） */
+
+        /* ---- 键盘开关图标按钮：位于输入行右侧 ---- */
+        .kb-toggle {
+            flex: none;                                       /* 不参与伸缩，固定尺寸 */
+            width: 30px; height: 26px;                        /* 紧凑图标尺寸 */
+            display: flex; align-items: center; justify-content: center; /* 图标居中 */
+            font-size: 15px;                                  /* 键盘符号大小 */
+            border-radius: 5px;                               /* 圆角 */
+            border: 1px solid rgba(57, 211, 255, 0.4);        /* 冰蓝细边框 */
+            background: rgba(13, 17, 23, 0.6);                /* 科技黑半透明底 */
+            color: #39d3ff;                                   /* 冰蓝图标色 */
+            cursor: pointer;                                  /* 手型光标 */
+            transition: all 0.15s ease;                       /* 悬停过渡 */
+        }
+        .kb-toggle:hover { box-shadow: 0 0 8px rgba(57, 211, 255, 0.45); } /* 悬停发光 */
+        .kb-toggle.kb-active { color: #ff2e97; border-color: #ff2e97; box-shadow: 0 0 8px rgba(255, 46, 151, 0.5); } /* 键盘展开时高亮为霓虹粉 */
+
+        /* ---- 浮层数学键盘容器：固定定位、深色霓虹面板，由 JS 计算位置 ---- */
+        .kb-popup {
+            position: fixed;                                  /* 脱离文档流，覆盖画布、不挤压左栏 */
+            z-index: 50;                                      /* 浮于画布之上 */
+            width: 560px;                                     /* 宽屏下的舒适宽度（按键更大，接近参考图） */
+            max-width: 92vw;                                  /* 窄屏收敛，避免溢出视口 */
+            overflow-x: auto;                                 /* 极窄屏时横向滚动，保证三区可用 */
+            padding: 10px;                                    /* 面板内边距 */
+            border-radius: 10px;                              /* 圆角面板 */
+            border: 1px solid rgba(57, 211, 255, 0.25);       /* 冰蓝细边框 */
+            background: rgba(22, 27, 34, 0.97);               /* 深色面板底（techpanel 近似，提高不透明度便于阅读） */
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 18px rgba(57, 211, 255, 0.18); /* 投影 + 霓虹外发光 */
+        }
+        .kb-popup.hidden { display: none; }                   /* 隐藏态 */
+        /* 浮层语境下不再受窄栏限制，适当放大按键，贴近参考图手感 */
+        .kb-popup .kb-key { font-size: 14px; padding: 10px 0; } /* 更大的字号与可点面积 */
     </style>
 </head>
 
@@ -172,15 +205,15 @@
             <!-- 目标函数输入 -->
             <section>
                 <h2 class="text-sm font-semibold text-iceblue mb-2">✏️ 输入目标函数</h2>
-                <!-- MathQuill 可编辑数学区：占位框/上标/分数/根号实时排版 -->
+                <!-- MathQuill 可编辑数学区：占位框/上标/分数/根号实时排版；右侧键盘图标按钮唤出浮层键盘 -->
                 <div class="flex items-center gap-1 bg-techbg/70 rounded px-2 py-1 border border-white/10">
                     <span class="text-white/50 select-none">y =</span>
                     <span id="mathField" class="flex-1 min-w-0"></span>
+                    <!-- 键盘开关图标：点击在右侧弹出/收起整套虚拟键盘浮层 -->
+                    <button id="kbToggle" type="button" class="kb-toggle" aria-label="切换数学键盘" title="切换数学键盘">⌨</button>
                 </div>
                 <!-- 隐藏域：存放 MathQuill LaTeX 转换后的 math.js 表达式，供解析主链路读取 -->
                 <input id="targetInput" type="hidden" value="-2(x-1)^2+3" />
-                <!-- 虚拟数学键盘：严格按 Desmos 分区（数字区 / 函数区 / 动作区），数据驱动渲染 -->
-                <div id="mathKeyboard" class="mt-2"></div>
                 <!-- 公式实时预览（KaTeX 渲染） -->
                 <div id="formulaPreview" class="mt-2 min-h-[2rem] text-center text-white/90 overflow-x-auto"></div>
                 <!-- 错误提示区 -->
@@ -252,6 +285,12 @@
             </div>
         </div>
     </main>
+
+    <!-- 浮层数学键盘：默认隐藏，点击输入框右侧图标后锚定在输入框附近向右下展开（置于 body 末尾，避免被左栏 overflow 裁剪） -->
+    <div id="kbPopup" class="kb-popup hidden">
+        <!-- 虚拟数学键盘：严格按 Desmos 分区（数字区 / 函数区 / 动作区），数据驱动渲染 -->
+        <div id="mathKeyboard"></div>
+    </div>
 
     <script>
     // =====================================================================
@@ -367,7 +406,9 @@
     const dom = {
         canvas: document.getElementById('plot'),               // 画布元素
         targetInput: document.getElementById('targetInput'),   // 函数输入框（兼显示框）
-        mathKeyboard: document.getElementById('mathKeyboard'), // 虚拟数学键盘容器
+        mathKeyboard: document.getElementById('mathKeyboard'), // 虚拟数学键盘容器（位于浮层内）
+        kbToggle: document.getElementById('kbToggle'),         // 键盘开关图标按钮
+        kbPopup: document.getElementById('kbPopup'),           // 浮层键盘容器
         formulaPreview: document.getElementById('formulaPreview'), // 公式预览
         parseError: document.getElementById('parseError'),     // 错误提示
         stepList: document.getElementById('stepList'),          // 步骤列表
@@ -1107,9 +1148,10 @@
     // 处理一次按键：把动作派发给 MathQuill 数学区
     function handleKeyPress(key) {
         if (!mathField) return;                                    // 实例未就绪则忽略
-        if (key.action === 'confirm') {                            // ↵：确认（失焦并立即解析）
+        if (key.action === 'confirm') {                            // ↵：确认（失焦、立即解析并收起浮层键盘）
             mathField.blur();
             reparse();
+            closeKbPopup();                                        // 确认后收起浮层，露出画布
             return;
         }
         const [method, arg] = key.mq;                              // 解构 MathQuill 指令
@@ -1121,8 +1163,73 @@
     }
 
     // =====================================================================
+    // 浮层键盘控制：开关与定位（锚定输入框、向右下展开、视口边界收敛）
+    // =====================================================================
+
+    // 根据输入行位置计算并设置浮层键盘的屏幕坐标
+    function positionKbPopup() {
+        const anchor = dom.kbToggle.parentElement;    // 输入行（y= / 数学区 / 图标 所在的 flex 容器）
+        const r = anchor.getBoundingClientRect();     // 输入行的视口矩形
+        const margin = 8;                             // 与视口边缘/输入行的间距
+        const pw = dom.kbPopup.offsetWidth;           // 浮层当前宽度
+        const ph = dom.kbPopup.offsetHeight;          // 浮层当前高度
+        let left = r.left;                            // 默认左边与输入行对齐，向右展开覆盖画布
+        let top = r.bottom + margin;                  // 默认紧贴输入行下方
+        // 右溢出收敛：超出视口右边则整体左移
+        if (left + pw + margin > window.innerWidth) left = window.innerWidth - pw - margin;
+        if (left < margin) left = margin;             // 左侧兜底，避免负值
+        // 下溢出收敛：放不下则改放到输入行上方
+        if (top + ph + margin > window.innerHeight) top = Math.max(margin, r.top - ph - margin);
+        dom.kbPopup.style.left = left + 'px';         // 应用横坐标
+        dom.kbPopup.style.top = top + 'px';           // 应用纵坐标
+    }
+
+    // 浮层是否处于打开状态
+    function isKbOpen() {
+        return !dom.kbPopup.classList.contains('hidden'); // 无 hidden 类即为打开
+    }
+
+    // 打开浮层键盘：显示 → 定位 → 高亮图标 → 聚焦数学区
+    function openKbPopup() {
+        dom.kbPopup.classList.remove('hidden');       // 先显示（此后 offsetWidth 才有值）
+        positionKbPopup();                            // 计算并设置位置
+        dom.kbToggle.classList.add('kb-active');      // 图标高亮，提示键盘已展开
+        if (mathField) mathField.focus();             // 聚焦数学区，便于直接输入
+    }
+
+    // 关闭浮层键盘
+    function closeKbPopup() {
+        dom.kbPopup.classList.add('hidden');          // 隐藏浮层
+        dom.kbToggle.classList.remove('kb-active');   // 取消图标高亮
+    }
+
+    // 切换浮层键盘显隐
+    function toggleKbPopup() {
+        if (isKbOpen()) closeKbPopup(); else openKbPopup(); // 已开则关、已关则开
+    }
+
+    // =====================================================================
     // 事件绑定
     // =====================================================================
+
+    // 键盘图标：切换浮层显隐（阻止冒泡，避免被下方"外部点击关闭"误判）
+    dom.kbToggle.addEventListener('click', (e) => {
+        e.stopPropagation();                          // 阻止冒泡到 document
+        toggleKbPopup();                              // 切换显隐
+    });
+    // 点击浮层与图标之外的区域：关闭浮层（用 mousedown 更跟手）
+    document.addEventListener('mousedown', (e) => {
+        if (!isKbOpen()) return;                       // 未打开无需处理
+        if (dom.kbPopup.contains(e.target) || dom.kbToggle.contains(e.target)) return; // 浮层/图标内点击不关闭
+        closeKbPopup();                                // 点击外部则收起
+    });
+    // Esc 键：关闭浮层
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isKbOpen()) closeKbPopup(); // 打开时按 Esc 收起
+    });
+    // 视口尺寸变化 / 滚动时若浮层打开则重新定位（捕获阶段以覆盖左栏内部滚动）
+    window.addEventListener('resize', () => { if (isKbOpen()) positionKbPopup(); });
+    window.addEventListener('scroll', () => { if (isKbOpen()) positionKbPopup(); }, true);
 
     // 基函数单选切换：更新基函数并重新解析
     document.querySelectorAll('input[name="baseFunc"]').forEach((radio) => {
