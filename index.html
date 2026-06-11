@@ -214,6 +214,11 @@
                         <input type="radio" name="baseFunc" value="sin" class="accent-neonpink" />
                         <span>y = sin x（三角）</span>
                     </label>
+                    <!-- 余弦基函数：支持 y=a·cos(b·(x-h))+k 的分步变换动画 -->
+                    <label class="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white/5">
+                        <input type="radio" name="baseFunc" value="cos" class="accent-neonpink" />
+                        <span>y = cos x（三角）</span>
+                    </label>
                 </div>
             </section>
 
@@ -393,7 +398,8 @@
         abs:{ name: '|x|', power: 'abs', latex: 'y=|x|', f: (x) => Math.abs(x) }, // 绝对值函数（V 形折线）
         exp:{ name: 'eˣ', power: 'exp', latex: 'y=e^x', f: (x) => Math.exp(x) },  // 指数函数（以 e 为底）
         log:{ name: 'ln x', power: 'log', latex: 'y=\\ln x', f: (x) => Math.log(x) }, // 对数函数（自然对数）
-        sin:{ name: 'sin x', power: 'sin', latex: 'y=\\sin x', f: (x) => Math.sin(x) } // 三角函数（正弦）
+        sin:{ name: 'sin x', power: 'sin', latex: 'y=\\sin x', f: (x) => Math.sin(x) }, // 三角函数（正弦）
+        cos:{ name: 'cos x', power: 'cos', latex: 'y=\\cos x', f: (x) => Math.cos(x) }  // 三角函数（余弦）
     };
 
     // =====================================================================
@@ -531,18 +537,25 @@
             const k = g1 - a * Math.log(x1 - h);  // 纵向平移 k
             return { a, h, k, b: 1 };             // 对数族横向伸缩并入 a，b=1
         }
-        if (power === 'sin') {
-            // 三角族 g(x)=a·sin(b·(x-h))+k：扫描求中线与振幅，再由二阶导反推角频率与相位
+        if (power === 'sin' || power === 'cos') {
+            // 三角族 g(x)=a·f(b·(x-h))+k（f 为 sin 或 cos）：扫描求中线与振幅，再由二阶导反推角频率与相位
+            // sin 与 cos 同样满足 y''=-b²(y-k)，故振幅/中线/角频率求法一致，仅相位分量公式不同
             let M = -Infinity, m = Infinity;      // 全局最大/最小值
             for (let x = -20; x <= 20; x += 0.05) { const y = evalFn(x); if (!isFinite(y)) continue; if (y > M) M = y; if (y < m) m = y; }
             const k = (M + m) / 2;                // 中线（垂直平移）= (max+min)/2
             const a = (M - m) / 2;                // 振幅 a = (max-min)/2（取正，翻转并入相位）
-            let xExt = 0, maxAbs = -1;            // 距中线最远点（≈极值处，sin≈±1 最稳定）
+            let xExt = 0, maxAbs = -1;            // 距中线最远点（≈极值处，幅值≈±1 最稳定）
             for (let x = -20; x <= 20; x += 0.05) { const y = evalFn(x); if (!isFinite(y)) continue; const d = Math.abs(y - k); if (d > maxAbs) { maxAbs = d; xExt = x; } }
             const y2 = nDeriv2(evalFn, xExt);     // 极值处二阶导
             const b = Math.sqrt(Math.abs(-y2 / (evalFn(xExt) - k))); // 由 y''=-b²(y-k) 解出角频率 b
-            const s = (evalFn(xExt) - k) / a;     // sin(b(x-h)) 分量
-            const c = nDeriv1(evalFn, xExt) / (a * b); // cos(b(x-h)) 分量（来自一阶导）
+            const val = (evalFn(xExt) - k) / a;   // 归一化幅值 (g-k)/a
+            const d1 = nDeriv1(evalFn, xExt);     // 极值处一阶导（用于拆出正交分量）
+            let s, c;                             // 相位角的 sin/cos 分量
+            if (power === 'sin') {                // sin 基：g=a·sin(θ)+k → sin(θ)=(g-k)/a，cos(θ)=g'/(a·b)
+                s = val; c = d1 / (a * b);
+            } else {                              // cos 基：g=a·cos(θ)+k → cos(θ)=(g-k)/a，sin(θ)=-g'/(a·b)
+                c = val; s = -d1 / (a * b);
+            }
             let theta = Math.atan2(s, c);         // 相位角 b(x-h)
             let h = xExt - theta / b;             // 解出相位平移 h
             const P = 2 * Math.PI / b;            // 周期 P=2π/b
@@ -613,8 +626,8 @@
                 // 横坐标变为原来的 1/b 倍：b>1 横向压缩、0<b<1 横向拉伸
                 parts.push(`横坐标${absB > 1 ? '压缩' : '拉伸'}为原来的 ${formatNum(1 / absB)} 倍`);
             }
-            // 三角函数额外标注周期，强化教学含义
-            if (power === 'sin') parts.push(`周期变为 ${formatNum(2 * Math.PI / absB)}`);
+            // 三角函数额外标注周期，强化教学含义（sin/cos 周期 2π/b）
+            if (power === 'sin' || power === 'cos') parts.push(`周期变为 ${formatNum(2 * Math.PI / absB)}`);
             steps.push({
                 title: '横向伸缩',
                 desc: parts.join('；'),
@@ -1186,8 +1199,8 @@
             dom.vertexLabel.textContent = '竖直渐近线';                // 对数函数有竖直渐近线
             dom.dataVertex.textContent = `x = ${formatNum(h)}`;        // 渐近线 x=h
             dom.dataAxis.textContent = `定义域 x > ${formatNum(h)}；${a > 0 ? '单调递增' : '单调递减'}`; // 定义域与单调性
-        } else if (power === 'sin') {
-            dom.vertexLabel.textContent = '振幅 / 周期';               // 三角函数关注振幅与周期
+        } else if (power === 'sin' || power === 'cos') {
+            dom.vertexLabel.textContent = '振幅 / 周期';               // 正弦/余弦关注振幅与周期
             dom.dataVertex.textContent = `A = ${formatNum(Math.abs(a))}，T = ${formatNum(2 * Math.PI / Math.abs(b))}`; // 振幅 A、周期 T=2π/b
             dom.dataAxis.textContent = `中线 y = ${formatNum(k)}；相位移 ${formatNum(h)}`; // 中线与相位
         } else {
