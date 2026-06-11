@@ -74,6 +74,32 @@
             box-shadow: 0 0 10px rgba(57, 211, 255, 0.4);     /* 悬停发光 */
         }
         .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; } /* 禁用态 */
+
+        /* 虚拟数学键盘网格：每行 5 列，自适应充满左栏宽度 */
+        .kb-grid {
+            display: grid;                                    /* 网格布局 */
+            grid-template-columns: repeat(5, 1fr);            /* 固定 5 列等宽 */
+            gap: 4px;                                         /* 按键间距 */
+        }
+        /* 键盘按键：科技黑底 + 冰蓝细边，悬停发光（复用控制按钮的交互手感） */
+        .kb-key {
+            padding: 8px 0;                                   /* 上下内边距，保证可点面积 */
+            font-size: 14px;                                  /* 按键文字大小 */
+            border-radius: 6px;                               /* 圆角 */
+            border: 1px solid rgba(255, 255, 255, 0.12);      /* 细边框 */
+            background: rgba(13, 17, 23, 0.6);                /* 科技黑半透明底 */
+            color: #e6edf3;                                   /* 浅色文字 */
+            transition: all 0.15s ease;                       /* 悬停过渡 */
+            cursor: pointer;                                  /* 手型光标 */
+        }
+        .kb-key:hover:not(:disabled) {
+            border-color: #39d3ff;                            /* 悬停冰蓝边框 */
+            box-shadow: 0 0 8px rgba(57, 211, 255, 0.35);     /* 悬停发光 */
+        }
+        /* 运算符/动作键用霓虹粉点缀，和数字键区分 */
+        .kb-key.kb-accent { color: #ff2e97; }                 /* 运算符/动作键霓虹粉 */
+        /* 预留的未来基本函数键：灰显且不可点击 */
+        .kb-key:disabled { opacity: 0.35; cursor: not-allowed; }
     </style>
 </head>
 
@@ -118,13 +144,15 @@
             <!-- 目标函数输入 -->
             <section>
                 <h2 class="text-sm font-semibold text-iceblue mb-2">✏️ 输入目标函数</h2>
-                <!-- 输入框：支持任意表达式，默认填入示例 -->
+                <!-- 表达式显示框：默认 readonly，移动端不弹出系统键盘（用点击式键盘输入） -->
                 <div class="flex items-center gap-1 bg-techbg/70 rounded px-2 py-1 border border-white/10">
                     <span class="text-white/50 select-none">y =</span>
-                    <input id="targetInput" type="text" value="-2(x-1)^2+3"
+                    <input id="targetInput" type="text" value="-2(x-1)^2+3" readonly
                            class="flex-1 bg-transparent outline-none text-neonpink py-1"
                            placeholder="例如 -2(x-1)^2+3" />
                 </div>
+                <!-- 虚拟数学键盘：所有输入均通过点击按键完成（数据驱动渲染） -->
+                <div id="mathKeyboard" class="mt-2"></div>
                 <!-- 公式实时预览（KaTeX 渲染） -->
                 <div id="formulaPreview" class="mt-2 min-h-[2rem] text-center text-white/90 overflow-x-auto"></div>
                 <!-- 错误提示区 -->
@@ -217,6 +245,53 @@
         plotStepPx: 2                   // 曲线采样步长（像素），越小越平滑
     };
 
+    // =====================================================================
+    // 虚拟数学键盘按键定义（数据驱动，6 列网格；后期加新基本函数只需在此加项）
+    //   insert: 点击后插入到表达式中的字符；action: 特殊动作（退格/清空/移光标）
+    //   accent: 运算符/动作键用霓虹粉点缀；disabled: 预留键（暂未支持，灰显）
+    // =====================================================================
+    const KEYBOARD_KEYS = [
+        // 第一行：数字 7 8 9 + ( )
+        { label: '7', insert: '7' },                          // 数字 7
+        { label: '8', insert: '8' },                          // 数字 8
+        { label: '9', insert: '9' },                          // 数字 9
+        { label: '+', insert: '+', accent: true },            // 加号
+        { label: '(', insert: '(', accent: true },            // 左括号
+        { label: ')', insert: ')', accent: true },            // 右括号
+        // 第二行：数字 4 5 6 − x ^
+        { label: '4', insert: '4' },                          // 数字 4
+        { label: '5', insert: '5' },                          // 数字 5
+        { label: '6', insert: '6' },                          // 数字 6
+        { label: '−', insert: '-', accent: true },            // 减号（插入标准减号）
+        { label: 'x', insert: 'x' },                          // 自变量 x
+        { label: '^', insert: '^', accent: true },            // 乘方符号
+        // 第三行：数字 1 2 3 × x² x³
+        { label: '1', insert: '1' },                          // 数字 1
+        { label: '2', insert: '2' },                          // 数字 2
+        { label: '3', insert: '3' },                          // 数字 3
+        { label: '×', insert: '*', accent: true },            // 乘号（插入 *）
+        { label: 'x²', insert: 'x^2' },                       // 二次：x 的平方
+        { label: 'x³', insert: 'x^3' },                       // 三次：x 的立方
+        // 第四行：数字 0 . ÷ ⌫ ← →
+        { label: '0', insert: '0' },                          // 数字 0
+        { label: '.', insert: '.' },                          // 小数点
+        { label: '÷', insert: '/', accent: true },            // 除号（插入 /）
+        { label: '⌫', action: 'backspace', accent: true },    // 退格
+        { label: '←', action: 'caretLeft', accent: true },    // 光标左移
+        { label: '→', action: 'caretRight', accent: true },   // 光标右移
+        // 第五行：清空 + 预留的未来基本函数（暂不支持，灰显）
+        { label: 'AC', action: 'clear', accent: true },       // 清空整个表达式
+        { label: 'sin', insert: 'sin(', disabled: true },     // 预留：正弦
+        { label: 'cos', insert: 'cos(', disabled: true },     // 预留：余弦
+        { label: 'tan', insert: 'tan(', disabled: true },     // 预留：正切
+        { label: 'log', insert: 'log(', disabled: true },     // 预留：常用对数
+        { label: 'ln', insert: 'ln(', disabled: true },       // 预留：自然对数
+        // 第六行：其余预留函数
+        { label: '√', insert: 'sqrt(', disabled: true },      // 预留：开方
+        { label: 'e', insert: 'e', disabled: true },          // 预留：自然常数
+        { label: 'π', insert: 'pi', disabled: true }          // 预留：圆周率
+    ];
+
     // 缓动函数 easeInOutQuad：t∈[0,1]，先加速后减速，动画更丝滑
     function easeInOutQuad(t) {
         // 前半段二次加速，后半段二次减速
@@ -274,7 +349,8 @@
     // =====================================================================
     const dom = {
         canvas: document.getElementById('plot'),               // 画布元素
-        targetInput: document.getElementById('targetInput'),   // 函数输入框
+        targetInput: document.getElementById('targetInput'),   // 函数输入框（兼显示框）
+        mathKeyboard: document.getElementById('mathKeyboard'), // 虚拟数学键盘容器
         formulaPreview: document.getElementById('formulaPreview'), // 公式预览
         parseError: document.getElementById('parseError'),     // 错误提示
         stepList: document.getElementById('stepList'),          // 步骤列表
@@ -828,6 +904,68 @@
     }
 
     // =====================================================================
+    // 虚拟数学键盘模块：点击按键往显示框插入字符，复用 reparse() 主链路
+    // =====================================================================
+
+    let kbCaret = dom.targetInput.value.length; // 虚拟光标位置（字符索引），初始指向末尾
+
+    // 渲染虚拟键盘：根据 KEYBOARD_KEYS 数据生成按钮网格
+    function renderKeyboard() {
+        const grid = document.createElement('div'); // 网格容器
+        grid.className = 'kb-grid';                  // 套用 6 列网格样式
+        KEYBOARD_KEYS.forEach((key) => {
+            const btn = document.createElement('button'); // 创建按键
+            btn.type = 'button';                          // 避免触发表单提交
+            btn.textContent = key.label;                  // 按键显示文字
+            btn.className = 'kb-key' + (key.accent ? ' kb-accent' : ''); // 基础样式 + 强调色
+            if (key.disabled) {                           // 预留键：灰显且不可点击
+                btn.disabled = true;                      // 禁用
+                btn.title = '后续版本支持';                // 悬停提示
+            } else {
+                btn.addEventListener('click', () => handleKeyPress(key)); // 绑定点击处理
+            }
+            grid.appendChild(btn);                        // 加入网格
+        });
+        dom.mathKeyboard.innerHTML = '';                  // 清空旧内容
+        dom.mathKeyboard.appendChild(grid);               // 挂载键盘网格
+    }
+
+    // 从输入框读取真实光标位置，同步到虚拟光标（手动输入/点击显示框时调用）
+    function syncCaretFromInput() {
+        const pos = dom.targetInput.selectionStart;       // 读取真实光标
+        if (pos !== null && pos !== undefined) kbCaret = pos; // 同步到虚拟光标
+    }
+
+    // 处理一次按键：插入字符 / 退格 / 清空 / 左右移动光标
+    function handleKeyPress(key) {
+        const val = dom.targetInput.value;                // 当前表达式文本
+        let caret = Math.min(Math.max(kbCaret, 0), val.length); // 把光标钳制在合法范围
+        if (key.action === 'clear') {                     // 清空整个表达式
+            dom.targetInput.value = '';
+            caret = 0;
+        } else if (key.action === 'backspace') {          // 退格：删除光标前一个字符
+            if (caret > 0) {
+                dom.targetInput.value = val.slice(0, caret - 1) + val.slice(caret);
+                caret -= 1;
+            }
+        } else if (key.action === 'caretLeft') {          // 光标左移一格
+            caret = Math.max(0, caret - 1);
+        } else if (key.action === 'caretRight') {         // 光标右移一格
+            caret = Math.min(val.length, caret + 1);
+        } else if (key.insert !== undefined) {            // 在光标处插入字符
+            dom.targetInput.value = val.slice(0, caret) + key.insert + val.slice(caret);
+            caret += key.insert.length;                   // 光标后移到插入内容之后
+        }
+        kbCaret = caret;                                  // 更新虚拟光标
+        // 把光标定位回显示框（桌面端显示闪烁光标作为反馈；readonly 下不弹移动端键盘）
+        try {
+            dom.targetInput.focus({ preventScroll: true });
+            dom.targetInput.setSelectionRange(caret, caret);
+        } catch (e) { /* 个别浏览器 readonly 不支持 setSelectionRange，忽略即可 */ }
+        reparse();                                        // 复用主链路：解析 → 重建步骤 → 动画
+    }
+
+    // =====================================================================
     // 事件绑定
     // =====================================================================
 
@@ -844,6 +982,10 @@
     dom.targetInput.addEventListener('input', () => {
         clearTimeout(inputTimer);                     // 清除上次计时
         inputTimer = setTimeout(reparse, 350);        // 350ms 后重新解析
+    });
+    // 点击显示框时同步虚拟光标，便于键盘从点击处插入字符
+    ['click', 'select'].forEach((ev) => {
+        dom.targetInput.addEventListener(ev, syncCaretFromInput);
     });
 
     // 上一步按钮
@@ -924,6 +1066,7 @@
     // =====================================================================
     function init() {
         resizeCanvas();                               // 初始化画布尺寸
+        renderKeyboard();                             // 渲染虚拟数学键盘
         requestAnimationFrame(loop);                  // 启动主循环
         reparse();                                    // 解析默认示例并演示
     }
