@@ -199,6 +199,21 @@
                         <input type="radio" name="baseFunc" value="abs" class="accent-neonpink" />
                         <span>y = |x|</span>
                     </label>
+                    <!-- 指数基函数：支持 y=a·e^(b·x)+k 的分步变换动画 -->
+                    <label class="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white/5">
+                        <input type="radio" name="baseFunc" value="exp" class="accent-neonpink" />
+                        <span>y = eˣ（指数）</span>
+                    </label>
+                    <!-- 对数基函数：支持 y=a·ln(x-h)+k 的分步变换动画 -->
+                    <label class="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white/5">
+                        <input type="radio" name="baseFunc" value="log" class="accent-neonpink" />
+                        <span>y = ln x（对数）</span>
+                    </label>
+                    <!-- 三角基函数：支持 y=a·sin(b·(x-h))+k 的分步变换动画 -->
+                    <label class="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white/5">
+                        <input type="radio" name="baseFunc" value="sin" class="accent-neonpink" />
+                        <span>y = sin x（三角）</span>
+                    </label>
                 </div>
             </section>
 
@@ -356,14 +371,29 @@
         return Math.abs(a - b) < eps; // 差值小于阈值即视为相等
     }
 
+    // 数值一阶导数（中心差分）：用于三角函数反推相位/系数
+    function nDeriv1(fn, x, dx = 1e-3) {
+        return (fn(x + dx) - fn(x - dx)) / (2 * dx); // (f(x+δ)-f(x-δ))/2δ
+    }
+    // 数值二阶导数（中心差分）：用于三角函数由 y''=-b²(y-k) 反推角频率 b
+    function nDeriv2(fn, x, dx = 1e-3) {
+        return (fn(x + dx) - 2 * fn(x) + fn(x - dx)) / (dx * dx); // (f(x+δ)-2f(x)+f(x-δ))/δ²
+    }
+
     // =====================================================================
-    // 基函数定义：y=x、y=x²、y=x³ 各自的求值函数与中文名、指数
+    // 基函数定义：每个基函数含求值函数 f、中文名、KaTeX latex 与类型标记 power
+    //   power 用于驱动「参数反推 fitParams」「步骤构建 buildSteps」「数据面板」的分支
+    //   统一变换模型：g(x) = a · f( b·(x − h) ) + k
+    //     a 纵向伸缩/翻转、b 横向伸缩/翻转、h 左右平移、k 上下平移
     // =====================================================================
     const BASE_FUNCS = {
         x:  { name: 'x',  power: 1, latex: 'y=x',   f: (x) => x },          // 一次函数
         x2: { name: 'x²', power: 2, latex: 'y=x^2', f: (x) => x * x },      // 二次函数
         x3: { name: 'x³', power: 3, latex: 'y=x^3', f: (x) => x * x * x },  // 三次函数
-        abs:{ name: '|x|', power: 'abs', latex: 'y=|x|', f: (x) => Math.abs(x) } // 绝对值函数（V 形折线）
+        abs:{ name: '|x|', power: 'abs', latex: 'y=|x|', f: (x) => Math.abs(x) }, // 绝对值函数（V 形折线）
+        exp:{ name: 'eˣ', power: 'exp', latex: 'y=e^x', f: (x) => Math.exp(x) },  // 指数函数（以 e 为底）
+        log:{ name: 'ln x', power: 'log', latex: 'y=\\ln x', f: (x) => Math.log(x) }, // 对数函数（自然对数）
+        sin:{ name: 'sin x', power: 'sin', latex: 'y=\\sin x', f: (x) => Math.sin(x) } // 三角函数（正弦）
     };
 
     // =====================================================================
@@ -462,13 +492,68 @@
             // 两支直线交点横坐标即顶点 h（两斜率相等说明退化为直线，置 h=0 待后续误差校验剔除）
             const h = approxEqual(slopeR - slopeL, 0) ? 0 : (bL - bR) / (slopeR - slopeL);
             const k = evalFn(h);                           // 顶点纵坐标 = g(h)
-            return { a, h, k };                            // 返回标准变换参数
+            return { a, h, k, b: 1 };                       // 返回标准变换参数（幂/绝对值族无横向伸缩，b=1）
+        }
+        if (power === 'exp') {
+            // 指数族 g(x)=a·e^(b·x)+k（横向平移与 a 冗余，故 h=0）
+            // 取三点等距采样 x=0,1,2：令 r=e^b，则 (g2-g1)/(g1-g0)=r，逐步解出 a,b,k
+            const g0 = evalFn(0), g1 = evalFn(1), g2 = evalFn(2); // 等距采样
+            const r = (g2 - g1) / (g1 - g0);      // 公比 r = e^b（非指数函数时会得到异常值，后续 fitError 兜底）
+            const b = Math.log(r);                // 角率 b = ln(r)
+            const a = (g1 - g0) / (r - 1);        // 纵向伸缩系数 a
+            const k = g0 - a;                     // 水平渐近线 y=k（x→-∞ 时的极限）
+            return { a, h: 0, k, b };             // 指数族无独立横向平移，h=0
+        }
+        if (power === 'log') {
+            // 对数族 g(x)=a·ln(x-h)+k（底数变化并入 a，故 b=1；定义域 x>h）
+            // 先在网格上找到最小的有定义采样点，从而把竖直渐近线 h 夹在半个步长内
+            let xlo = null;                       // 定义域左端（首个有限采样点）
+            for (let x = -19.5; x <= 20; x += 0.5) { if (isFinite(evalFn(x))) { xlo = x; break; } }
+            if (xlo === null) return { a: NaN, h: NaN, k: NaN, b: 1 }; // 全程无定义→交由 fitError 兜底
+            const x1 = xlo + 1, x2 = xlo + 3, x3 = xlo + 7; // 域内三个稳定探测点
+            const g1 = evalFn(x1), g2 = evalFn(x2), g3 = evalFn(x3); // 对应函数值
+            const Rdata = (g2 - g1) / (g3 - g2);  // 实测差分比
+            // 模型差分比 R(h)=ln((x2-h)/(x1-h)) / ln((x3-h)/(x2-h))，关于 h 单调，二分求解
+            const Rmodel = (hh) => Math.log((x2 - hh) / (x1 - hh)) / Math.log((x3 - hh) / (x2 - hh));
+            let lo = xlo - 0.5, hi = xlo - 1e-6;  // 渐近线 h 必落在 [xlo-0.5, xlo)
+            const fLo = Rmodel(lo) - Rdata, fHi = Rmodel(hi) - Rdata; // 区间端点残差
+            let h;                                // 求得的渐近线横坐标
+            if (isFinite(fLo) && isFinite(fHi) && fLo * fHi < 0) {
+                for (let i = 0; i < 80; i++) {    // 80 次二分足够收敛到机器精度
+                    const mid = (lo + hi) / 2; const fm = Rmodel(mid) - Rdata; // 中点残差
+                    if (fLo * fm <= 0) hi = mid; else lo = mid; // 按符号收缩区间
+                }
+                h = (lo + hi) / 2;                // 取区间中点为解
+            } else {
+                h = xlo - 0.25;                   // 无法夹逼时给个保守估计（最终由 fitError 决定是否采纳）
+            }
+            const a = (g2 - g1) / Math.log((x2 - h) / (x1 - h)); // 纵向伸缩系数 a
+            const k = g1 - a * Math.log(x1 - h);  // 纵向平移 k
+            return { a, h, k, b: 1 };             // 对数族横向伸缩并入 a，b=1
+        }
+        if (power === 'sin') {
+            // 三角族 g(x)=a·sin(b·(x-h))+k：扫描求中线与振幅，再由二阶导反推角频率与相位
+            let M = -Infinity, m = Infinity;      // 全局最大/最小值
+            for (let x = -20; x <= 20; x += 0.05) { const y = evalFn(x); if (!isFinite(y)) continue; if (y > M) M = y; if (y < m) m = y; }
+            const k = (M + m) / 2;                // 中线（垂直平移）= (max+min)/2
+            const a = (M - m) / 2;                // 振幅 a = (max-min)/2（取正，翻转并入相位）
+            let xExt = 0, maxAbs = -1;            // 距中线最远点（≈极值处，sin≈±1 最稳定）
+            for (let x = -20; x <= 20; x += 0.05) { const y = evalFn(x); if (!isFinite(y)) continue; const d = Math.abs(y - k); if (d > maxAbs) { maxAbs = d; xExt = x; } }
+            const y2 = nDeriv2(evalFn, xExt);     // 极值处二阶导
+            const b = Math.sqrt(Math.abs(-y2 / (evalFn(xExt) - k))); // 由 y''=-b²(y-k) 解出角频率 b
+            const s = (evalFn(xExt) - k) / a;     // sin(b(x-h)) 分量
+            const c = nDeriv1(evalFn, xExt) / (a * b); // cos(b(x-h)) 分量（来自一阶导）
+            let theta = Math.atan2(s, c);         // 相位角 b(x-h)
+            let h = xExt - theta / b;             // 解出相位平移 h
+            const P = 2 * Math.PI / b;            // 周期 P=2π/b
+            h = h - Math.round(h / P) * P;        // 把 h 归一到 (-P/2, P/2]，避免显示成超大平移
+            return { a, h, k, b };                // 返回振幅/相位/中线/角频率
         }
         if (power === 1) {
             // 一次函数：g(x)=A·x+B；横向平移对直线冗余，故 h=0，k=B
             const B = evalFn(0);                  // 截距
             const A = evalFn(1) - evalFn(0);      // 斜率
-            return { a: A, h: 0, k: B };          // 纵向伸缩 A、纵向平移 B
+            return { a: A, h: 0, k: B, b: 1 };    // 纵向伸缩 A、纵向平移 B（直线无横向伸缩，b=1）
         } else if (power === 2) {
             // 二次函数：g(x)=A·x²+B·x+C，用三点采样求系数
             const C = evalFn(0);                  // 常数项 = g(0)
@@ -476,7 +561,7 @@
             const B = (evalFn(1) - evalFn(-1)) / 2;          // 一次项系数
             const h = -B / (2 * A);               // 顶点横坐标 = -B/(2A)
             const k = C - (B * B) / (4 * A);      // 顶点纵坐标
-            return { a: A, h, k };                // a 即开口/伸缩系数
+            return { a: A, h, k, b: 1 };          // a 即开口/伸缩系数（二次函数无横向伸缩，b=1）
         } else {
             // 三次函数：g(x)=A·x³+B·x²+C·x+D，用四点采样求系数
             const D = evalFn(0);                  // 常数项 = g(0)
@@ -488,7 +573,7 @@
             // 标准形式 a(x-h)³+k 中无二次项时 h=-B/(3A)；按此近似求拐点
             const h = approxEqual(A, 0) ? 0 : -B / (3 * A); // 拐点横坐标
             const k = evalFn(h);                   // 拐点纵坐标 = g(h)
-            return { a: A, h, k };                 // a 为伸缩/翻转系数
+            return { a: A, h, k, b: 1 };           // a 为伸缩/翻转系数（三次函数无横向伸缩，b=1）
         }
     }
 
@@ -497,51 +582,69 @@
     // 顺序：本体现身 → 左右平移(h) → 纵向伸缩+翻转(a) → 上下平移(k)
     // =====================================================================
     function buildSteps(baseKey, params) {
-        const { a, h, k } = params;               // 解构参数
-        const power = BASE_FUNCS[baseKey].power;   // 基函数次数
+        const { a, h, k, b } = params;            // 解构参数（含横向伸缩 b）
+        const power = BASE_FUNCS[baseKey].power;   // 基函数类型
         const steps = [];                          // 步骤数组
 
         // 第一步：本体现身（绘制基函数）。drawn 表示绘制进度参数
         steps.push({
             title: '本体现身',
             desc: `荧光线平滑绘制出标准函数 ${BASE_FUNCS[baseKey].latex}`,
-            // 该步完成后的完整参数快照：未平移、系数为1、未升降、绘制完成
-            snapshot: { ha: 0, aa: 1, ka: 0, drawn: 1 }
+            // 该步完成后的完整参数快照：未平移、横纵系数为1、未升降、绘制完成
+            snapshot: { ha: 0, ba: 1, aa: 1, ka: 0, drawn: 1 }
         });
 
-        // 第二步：左右平移（仅当 h 不为 0；一次函数 h 恒为 0 故跳过）
+        // 第二步：左右平移（仅当 h 不为 0；一次函数/指数函数 h 恒为 0 故跳过）
         if (!approxEqual(h, 0)) {
             const dir = h > 0 ? '右' : '左';        // h>0 向右、h<0 向左
             steps.push({
                 title: '左右平移',
-                desc: `左加右减：x → (x${h > 0 ? '-' : '+'}${Math.abs(h)})，向${dir}平移 ${Math.abs(h)} 个单位`,
-                snapshot: { ha: h, aa: 1, ka: 0, drawn: 1 } // 平移到位，其余不变
+                desc: `左加右减：x → (x${h > 0 ? '-' : '+'}${formatNum(Math.abs(h))})，向${dir}平移 ${formatNum(Math.abs(h))} 个单位`,
+                snapshot: { ha: h, ba: 1, aa: 1, ka: 0, drawn: 1 } // 平移到位，其余不变
             });
         }
 
-        // 第三步：纵向伸缩与翻转（仅当 a 不等于 1 时）
+        // 第三步：横向伸缩/翻转（仅当 b 不等于 1 时；幂函数族 b 恒为 1 故跳过）
+        if (!approxEqual(b, 1)) {
+            const parts = [];                       // 组合提示文字
+            if (b < 0) parts.push('系数为负：关于 y 轴翻转'); // b<0 为左右翻转
+            const absB = Math.abs(b);               // 横向伸缩倍率
+            if (!approxEqual(absB, 1)) {
+                // 横坐标变为原来的 1/b 倍：b>1 横向压缩、0<b<1 横向拉伸
+                parts.push(`横坐标${absB > 1 ? '压缩' : '拉伸'}为原来的 ${formatNum(1 / absB)} 倍`);
+            }
+            // 三角函数额外标注周期，强化教学含义
+            if (power === 'sin') parts.push(`周期变为 ${formatNum(2 * Math.PI / absB)}`);
+            steps.push({
+                title: '横向伸缩',
+                desc: parts.join('；'),
+                snapshot: { ha: h, ba: b, aa: 1, ka: 0, drawn: 1 } // 应用横向系数 b
+            });
+        }
+
+        // 第四步：纵向伸缩与翻转（仅当 a 不等于 1 时）
         if (!approxEqual(a, 1)) {
             const parts = [];                       // 组合提示文字
             if (a < 0) parts.push((power === 2 || power === 'abs') ? '系数为负：开口向下' : '系数为负：关于 x 轴翻转'); // 翻转说明（二次/绝对值为开口翻转）
             const absA = Math.abs(a);               // 伸缩倍数
             if (!approxEqual(absA, 1)) {
                 // 伸缩说明：>1 为拉伸，<1 为压缩
-                parts.push(`系数为 ${absA}：纵坐标${absA > 1 ? '拉伸' : '压缩'}为原来的 ${absA} 倍`);
+                parts.push(`系数为 ${formatNum(absA)}：纵坐标${absA > 1 ? '拉伸' : '压缩'}为原来的 ${formatNum(absA)} 倍`);
             }
             steps.push({
                 title: '伸缩与翻转',
                 desc: parts.join('；'),
-                snapshot: { ha: h, aa: a, ka: 0, drawn: 1 } // 应用系数 a
+                snapshot: { ha: h, ba: b, aa: a, ka: 0, drawn: 1 } // 应用系数 a
             });
         }
 
-        // 第四步：上下平移（仅当 k 不为 0 时）
+        // 第五步：上下平移（仅当 k 不为 0 时）
         if (!approxEqual(k, 0)) {
             const dir = k > 0 ? '上' : '下';         // k>0 向上、k<0 向下
             steps.push({
                 title: '上下平移',
-                desc: `上加下减：${k > 0 ? '+' : '-'}${Math.abs(k)}，向${dir}平移 ${Math.abs(k)} 个单位`,
-                snapshot: { ha: h, aa: a, ka: k, drawn: 1 } // 应用上下平移 k
+                desc: `上加下减：${k > 0 ? '+' : '-'}${formatNum(Math.abs(k))}，向${dir}平移 ${formatNum(Math.abs(k))} 个单位`,
+                snapshot: { ha: h, ba: b, aa: a, ka: k, drawn: 1 } // 应用上下平移 k
             });
         }
 
@@ -556,10 +659,11 @@
     function toMathX(px) { return (px - state.view.originX) / state.view.scale; } // 像素x→数学x
     function toMathY(py) { return (state.view.originY - py) / state.view.scale; } // 像素y→数学y
 
-    // 计算某组参数下的函数值：y = aa * f(x - ha) + ka
+    // 计算某组参数下的函数值：y = aa * f( ba * (x - ha) ) + ka
     function evalTransformed(p, x) {
         const f = BASE_FUNCS[state.baseKey].f;      // 当前基函数
-        return p.aa * f(x - p.ha) + p.ka;           // 套用平移/伸缩/翻转
+        const ba = (p.ba === undefined) ? 1 : p.ba; // 横向伸缩系数（缺省视为 1，兼容旧调用）
+        return p.aa * f(ba * (x - p.ha)) + p.ka;    // 套用横向伸缩 → 平移 → 纵向伸缩/翻转 → 升降
     }
 
     // =====================================================================
@@ -729,16 +833,27 @@
         dom.dataMouse.textContent = `x=${formatNum(mx)}, f(x)=${yShow}`;
     }
 
-    // 绘制顶点闪烁标记（最后一步完成后调用）
+    // 计算用于闪烁标注的"特征点"横坐标（保证落在曲线上，各函数取最具代表性的点）
+    function getMarkerX() {
+        const power = BASE_FUNCS[state.baseKey].power; // 当前基函数类型
+        if (power === 'exp') return 0;                 // 指数：标 y 轴交点 (0, a+k)
+        if (power === 'log') return state.params.h + 1;// 对数：标 ln=0 处 (h+1, k)
+        return state.params.h;                         // 幂/绝对值/三角：标顶点/相位中点 (h, k)
+    }
+
+    // 绘制特征点闪烁标记（最后一步完成后调用）
     function drawVertexFlash() {
         if (!state.vertexFlash.active || !state.params) return; // 未激活则跳过
-        const { h, k } = state.params;                // 顶点/拐点坐标
+        const mx = getMarkerX();                      // 特征点横坐标
+        const snap = state.anim.current || lastSnapshot(); // 当前曲线参数
+        const my = evalTransformed(snap, mx);         // 该点纵坐标（确保落在曲线上）
+        if (!isFinite(my)) return;                    // 非有限值则不标注
         const t = (performance.now() - state.vertexFlash.start) / 1000; // 经过秒数
         const pulse = 0.5 + 0.5 * Math.sin(t * 4);    // 0~1 周期脉冲（呼吸闪烁）
-        const sx = toScreenX(h), sy = toScreenY(k);   // 顶点屏幕坐标
+        const sx = toScreenX(mx), sy = toScreenY(my); // 特征点屏幕坐标
 
         ctx.save();
-        ctx.fillStyle = CONFIG.neon;                  // 顶点用霓虹粉
+        ctx.fillStyle = CONFIG.neon;                  // 特征点用霓虹粉
         ctx.shadowColor = CONFIG.neon;
         ctx.shadowBlur = 10 + pulse * 20;             // 随脉冲变化的发光强度
         ctx.beginPath();
@@ -749,13 +864,13 @@
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 13px sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText(`(${formatNum(h)}, ${formatNum(k)})`, sx + 10, sy - 10); // 在顶点旁标坐标
+        ctx.fillText(`(${formatNum(mx)}, ${formatNum(my)})`, sx + 10, sy - 10); // 在特征点旁标坐标
         ctx.restore();
     }
 
     // 取得最后一次已完成步骤的参数快照（无动画时的静态显示）
     function lastSnapshot() {
-        if (state.currentStep < 0) return { ha: 0, aa: 1, ka: 0, drawn: 0 }; // 尚未开始
+        if (state.currentStep < 0) return { ha: 0, ba: 1, aa: 1, ka: 0, drawn: 0 }; // 尚未开始
         return state.snapshots[state.currentStep];     // 当前步骤快照
     }
 
@@ -805,8 +920,11 @@
 
     // 在两个参数快照之间按进度 t 线性插值，得到当前帧参数
     function lerpSnapshot(from, to, t) {
+        const fb = (from.ba === undefined) ? 1 : from.ba; // 起点横向系数（兼容缺省）
+        const tb = (to.ba === undefined) ? 1 : to.ba;     // 终点横向系数（兼容缺省）
         return {
             ha: from.ha + (to.ha - from.ha) * t,      // 横向平移插值
+            ba: fb + (tb - fb) * t,                   // 横向伸缩插值（实现周期/陡缓的丝滑过渡）
             aa: from.aa + (to.aa - from.aa) * t,      // 纵向系数插值（经过0实现丝滑翻转）
             ka: from.ka + (to.ka - from.ka) * t,      // 纵向平移插值
             drawn: from.drawn + (to.drawn - from.drawn) * t // 绘制进度插值
@@ -818,7 +936,7 @@
         if (targetStep < 0 || targetStep >= state.steps.length) return; // 越界保护
         // 起点：当前步快照（-1 时用初始空白状态）
         const fromSnap = state.currentStep < 0
-            ? { ha: 0, aa: 1, ka: 0, drawn: 0 }
+            ? { ha: 0, ba: 1, aa: 1, ka: 0, drawn: 0 }
             : { ...state.snapshots[state.currentStep] };
         const toSnap = { ...state.snapshots[targetStep] }; // 终点快照
 
@@ -1010,13 +1128,19 @@
     }
 
     // 拟合误差：拟合参数还原的曲线与原函数的最大抽样偏差（纯计算，无副作用）
+    // 加宽采样区间以覆盖指数/对数/三角的特征；并对非有限值与样本不足做保护，避免误判可拆解
     function fitError(evalFn, params) {
         let maxErr = 0;                               // 最大偏差
-        for (let x = -3; x <= 3; x += 0.5) {          // 抽样比较
-            const approx = evalTransformed({ ha: params.h, aa: params.a, ka: params.k }, x); // 拟合值
+        let n = 0;                                    // 有效对比样本数
+        for (let x = -9; x <= 9; x += 0.5) {          // 加宽抽样比较区间
             const real = evalFn(x);                   // 真实值
-            if (isFinite(real)) maxErr = Math.max(maxErr, Math.abs(approx - real)); // 更新偏差
+            if (!isFinite(real)) continue;            // 原函数无定义处（如对数定义域外）跳过
+            const approx = evalTransformed({ ha: params.h, ba: params.b, aa: params.a, ka: params.k }, x); // 拟合值
+            if (!isFinite(approx)) return Infinity;   // 拟合在有定义处却发散→参数非法，判为拟合失败
+            maxErr = Math.max(maxErr, Math.abs(approx - real)); // 更新偏差
+            n++;                                      // 计入有效样本
         }
+        if (n < 4) return Infinity;                   // 有效样本过少无法验证→视为失败，触发兜底
         return maxErr;                                // 返回最大偏差供调用方决策
     }
 
@@ -1034,8 +1158,8 @@
     // 更新右上角数据面板：解析式、顶点、对称轴、开口方向
     function updateDataPanel() {
         if (!state.params) return;                    // 无参数则跳过
-        const { a, h, k } = state.params;             // 解构参数
-        const power = BASE_FUNCS[state.baseKey].power; // 基函数次数
+        const { a, h, k, b } = state.params;          // 解构参数（含横向系数 b）
+        const power = BASE_FUNCS[state.baseKey].power; // 基函数类型
 
         // 解析式（用 KaTeX 渲染当前完整目标函数）
         try {
@@ -1054,6 +1178,18 @@
             dom.vertexLabel.textContent = '对称中心';                  // 三次函数称对称中心
             dom.dataVertex.textContent = `(${formatNum(h)}, ${formatNum(k)})`;
             dom.dataAxis.textContent = `中心对称；${a > 0 ? '递增' : '递减'}趋势`;
+        } else if (power === 'exp') {
+            dom.vertexLabel.textContent = '水平渐近线';                // 指数函数有水平渐近线
+            dom.dataVertex.textContent = `y = ${formatNum(k)}`;        // 渐近线 y=k
+            dom.dataAxis.textContent = `${a * b > 0 ? '单调递增' : '单调递减'}；过点 (0, ${formatNum(a + k)})`; // 单调性由 a·b 符号决定
+        } else if (power === 'log') {
+            dom.vertexLabel.textContent = '竖直渐近线';                // 对数函数有竖直渐近线
+            dom.dataVertex.textContent = `x = ${formatNum(h)}`;        // 渐近线 x=h
+            dom.dataAxis.textContent = `定义域 x > ${formatNum(h)}；${a > 0 ? '单调递增' : '单调递减'}`; // 定义域与单调性
+        } else if (power === 'sin') {
+            dom.vertexLabel.textContent = '振幅 / 周期';               // 三角函数关注振幅与周期
+            dom.dataVertex.textContent = `A = ${formatNum(Math.abs(a))}，T = ${formatNum(2 * Math.PI / Math.abs(b))}`; // 振幅 A、周期 T=2π/b
+            dom.dataAxis.textContent = `中线 y = ${formatNum(k)}；相位移 ${formatNum(h)}`; // 中线与相位
         } else {
             dom.vertexLabel.textContent = '特征点';                    // 一次函数
             dom.dataVertex.textContent = `斜率 ${formatNum(a)}`;
