@@ -10,6 +10,7 @@
 - [x] 通过 CDN 引入 Tailwind CSS v3
 - [x] 通过 CDN 引入 math.js
 - [x] 通过 CDN 引入 KaTeX（含 CSS + auto-render）
+- [x] 通过 CDN 引入 MathQuill（含 jQuery 依赖）用于可编辑数学输入区
 - [x] 配置全局常量区（配色、网格、动画时长等）
 
 ## 阶段二：界面布局与样式（Math + Tech Vibe）
@@ -22,10 +23,11 @@
 
 ## 阶段三：左侧控制栏组件
 - [x] 基本函数选择（单选：y=x / y=x² / y=x³，默认 y=x²）
-- [x] 目标函数显示框（全程只读，仅供展示当前表达式）
-- [x] 虚拟数学键盘点击输入（数据驱动，全部输入靠点击 KEYBOARD_KEYS；预留 sin/cos/log 等未来基本函数键）
+- [x] MathQuill 可编辑数学区（占位框/上标/分数/根号实时排版）
+- [x] 虚拟数学键盘：严格按 Desmos 分区（数字区/函数区/动作区），数据驱动 KEYBOARD_KEYS
+- [x] 键盘按键派发到 MathQuill（type/cmd/write/keystroke）+ LaTeX→math.js 表达式转换
 - [x] 输入实时 KaTeX 公式预览
-- [x] 非法输入的友好错误提示
+- [x] 非法/不可拆解输入的友好提示（无法拆解时静态绘制原函数）
 - [x] 变换步骤分解列表（按教学顺序展示）
 - [x] 动画控制按钮（上一步 / 下一步 / 播放暂停 / 重播）
 - [x] 速度滑块（0.5x ~ 2.0x）

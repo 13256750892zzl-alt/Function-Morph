@@ -14,6 +14,11 @@
     <!-- KaTeX 样式与脚本：用于渲染数学公式 -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <!-- jQuery：MathQuill 0.10.x 的运行依赖，必须在 MathQuill 之前加载 -->
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <!-- MathQuill：可编辑数学输入区（占位框、光标穿梭、上标/分数/根号实时排版） -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mathquill@0.10.1/build/mathquill.css" />
+    <script src="https://cdn.jsdelivr.net/npm/mathquill@0.10.1/build/mathquill.min.js"></script>
 
     <script>
         // Tailwind 自定义主题：登记项目主色调（霓虹粉为主，冰蓝为辅）与科技黑背景
@@ -75,16 +80,34 @@
         }
         .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; } /* 禁用态 */
 
-        /* 虚拟数学键盘网格：每行 5 列，自适应充满左栏宽度 */
-        .kb-grid {
-            display: grid;                                    /* 网格布局 */
-            grid-template-columns: repeat(5, 1fr);            /* 固定 5 列等宽 */
-            gap: 4px;                                         /* 按键间距 */
+        /* ---- MathQuill 可编辑数学区：适配深色霓虹主题 ---- */
+        #mathField { display: block; width: 100%; min-height: 1.9rem; }   /* 占满输入行 */
+        .mq-editable-field, .mq-math-mode {
+            border: none !important;                          /* 去掉默认边框 */
+            background: transparent !important;               /* 透明底融入深色面板 */
+            color: #ff2e97 !important;                        /* 表达式用霓虹粉 */
+            box-shadow: none !important;                      /* 去默认阴影 */
+            font-size: 16px;                                  /* 数学排版字号 */
         }
+        .mq-editable-field.mq-focused { box-shadow: none !important; outline: none; } /* 聚焦不要蓝框 */
+        .mq-cursor { border-color: #ff2e97 !important; }      /* 光标霓虹粉 */
+        /* 空占位框（□）：冰蓝淡底，提示此处待输入 */
+        .mq-editable-field .mq-empty { background: rgba(57, 211, 255, 0.18); }
+
+        /* ---- 虚拟数学键盘：严格按 Desmos 三区横向排布 ---- */
+        .kb-zones { display: flex; gap: 6px; align-items: stretch; }      /* 数字区 | 函数区 | 动作区 */
+        .kb-num  { flex: 4; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; } /* 数字区 4 列 */
+        .kb-func { flex: 4; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; } /* 函数区 4 列 */
+        .kb-act  { flex: 2; display: grid; grid-template-columns: repeat(2, 1fr); grid-auto-rows: 1fr; gap: 3px; } /* 动作区 2 列 */
+        /* 数字区/函数区轻微底色区分，呼应原图米色/白色两块 */
+        .kb-num  { background: rgba(255, 255, 255, 0.03); border-radius: 6px; padding: 3px; }
+        .kb-func { background: rgba(57, 211, 255, 0.04); border-radius: 6px; padding: 3px; }
+
         /* 键盘按键：科技黑底 + 冰蓝细边，悬停发光（复用控制按钮的交互手感） */
         .kb-key {
-            padding: 8px 0;                                   /* 上下内边距，保证可点面积 */
-            font-size: 14px;                                  /* 按键文字大小 */
+            padding: 7px 0;                                   /* 上下内边距，保证可点面积 */
+            font-size: 12px;                                  /* 按键文字大小（窄栏更紧凑） */
+            line-height: 1.1;                                 /* 紧凑行高 */
             border-radius: 6px;                               /* 圆角 */
             border: 1px solid rgba(255, 255, 255, 0.12);      /* 细边框 */
             background: rgba(13, 17, 23, 0.6);                /* 科技黑半透明底 */
@@ -98,8 +121,7 @@
         }
         /* 运算符/动作键用霓虹粉点缀，和数字键区分 */
         .kb-key.kb-accent { color: #ff2e97; }                 /* 运算符/动作键霓虹粉 */
-        /* 预留的未来基本函数键：灰显且不可点击 */
-        .kb-key:disabled { opacity: 0.35; cursor: not-allowed; }
+        .kb-key:disabled { opacity: 0.35; cursor: not-allowed; } /* 禁用态（本版本未用） */
     </style>
 </head>
 
@@ -144,14 +166,14 @@
             <!-- 目标函数输入 -->
             <section>
                 <h2 class="text-sm font-semibold text-iceblue mb-2">✏️ 输入目标函数</h2>
-                <!-- 表达式显示框：默认 readonly，移动端不弹出系统键盘（用点击式键盘输入） -->
+                <!-- MathQuill 可编辑数学区：占位框/上标/分数/根号实时排版 -->
                 <div class="flex items-center gap-1 bg-techbg/70 rounded px-2 py-1 border border-white/10">
                     <span class="text-white/50 select-none">y =</span>
-                    <input id="targetInput" type="text" value="-2(x-1)^2+3" readonly
-                           class="flex-1 bg-transparent outline-none text-neonpink py-1"
-                           placeholder="例如 -2(x-1)^2+3" />
+                    <span id="mathField" class="flex-1 min-w-0"></span>
                 </div>
-                <!-- 虚拟数学键盘：所有输入均通过点击按键完成（数据驱动渲染） -->
+                <!-- 隐藏域：存放 MathQuill LaTeX 转换后的 math.js 表达式，供解析主链路读取 -->
+                <input id="targetInput" type="hidden" value="-2(x-1)^2+3" />
+                <!-- 虚拟数学键盘：严格按 Desmos 分区（数字区 / 函数区 / 动作区），数据驱动渲染 -->
                 <div id="mathKeyboard" class="mt-2"></div>
                 <!-- 公式实时预览（KaTeX 渲染） -->
                 <div id="formulaPreview" class="mt-2 min-h-[2rem] text-center text-white/90 overflow-x-auto"></div>
@@ -246,51 +268,37 @@
     };
 
     // =====================================================================
-    // 虚拟数学键盘按键定义（数据驱动，6 列网格；后期加新基本函数只需在此加项）
-    //   insert: 点击后插入到表达式中的字符；action: 特殊动作（退格/清空/移光标）
-    //   accent: 运算符/动作键用霓虹粉点缀；disabled: 预留键（暂未支持，灰显）
+    // 虚拟数学键盘按键定义（严格按第二张 Desmos 图分区与排列）
+    //   分三区：num 数字区(4列) / func 函数区(4列) / act 动作区(2列)
+    //   mq: [方法, 参数] 描述点击后对 MathQuill 的操作
+    //       'type'      → typedText(参数)：按字符键入（自动识别函数名/括号配对）
+    //       'cmd'       → cmd(参数)：插入命令/模板（如 ^、\sqrt、\nthroot、/ 分数、| 绝对值）
+    //       'write'     → write(参数)：写入一段 LaTeX
+    //       'keystroke' → keystroke(参数)：模拟按键（Backspace / Left / Right）
+    //   action: 'confirm' 等自定义动作；accent: 霓虹粉点缀；span/rowSpan: 跨列/跨行
     // =====================================================================
-    const KEYBOARD_KEYS = [
-        // 第一行：数字 7 8 9 + ( )
-        { label: '7', insert: '7' },                          // 数字 7
-        { label: '8', insert: '8' },                          // 数字 8
-        { label: '9', insert: '9' },                          // 数字 9
-        { label: '+', insert: '+', accent: true },            // 加号
-        { label: '(', insert: '(', accent: true },            // 左括号
-        { label: ')', insert: ')', accent: true },            // 右括号
-        // 第二行：数字 4 5 6 − x ^
-        { label: '4', insert: '4' },                          // 数字 4
-        { label: '5', insert: '5' },                          // 数字 5
-        { label: '6', insert: '6' },                          // 数字 6
-        { label: '−', insert: '-', accent: true },            // 减号（插入标准减号）
-        { label: 'x', insert: 'x' },                          // 自变量 x
-        { label: '^', insert: '^', accent: true },            // 乘方符号
-        // 第三行：数字 1 2 3 × x² x³
-        { label: '1', insert: '1' },                          // 数字 1
-        { label: '2', insert: '2' },                          // 数字 2
-        { label: '3', insert: '3' },                          // 数字 3
-        { label: '×', insert: '*', accent: true },            // 乘号（插入 *）
-        { label: 'x²', insert: 'x^2' },                       // 二次：x 的平方
-        { label: 'x³', insert: 'x^3' },                       // 三次：x 的立方
-        // 第四行：数字 0 . ÷ ⌫ ← →
-        { label: '0', insert: '0' },                          // 数字 0
-        { label: '.', insert: '.' },                          // 小数点
-        { label: '÷', insert: '/', accent: true },            // 除号（插入 /）
-        { label: '⌫', action: 'backspace', accent: true },    // 退格
-        { label: '←', action: 'caretLeft', accent: true },    // 光标左移
-        { label: '→', action: 'caretRight', accent: true },   // 光标右移
-        // 第五行：清空 + 预留的未来基本函数（暂不支持，灰显）
-        { label: 'AC', action: 'clear', accent: true },       // 清空整个表达式
-        { label: 'sin', insert: 'sin(', disabled: true },     // 预留：正弦
-        { label: 'cos', insert: 'cos(', disabled: true },     // 预留：余弦
-        { label: 'tan', insert: 'tan(', disabled: true },     // 预留：正切
-        { label: 'log', insert: 'log(', disabled: true },     // 预留：常用对数
-        { label: 'ln', insert: 'ln(', disabled: true },       // 预留：自然对数
-        // 第六行：其余预留函数
-        { label: '√', insert: 'sqrt(', disabled: true },      // 预留：开方
-        { label: 'e', insert: 'e', disabled: true },          // 预留：自然常数
-        { label: 'π', insert: 'pi', disabled: true }          // 预留：圆周率
-    ];
+    const KEYBOARD_KEYS = {
+        // 数字区（4 列 4 行）：7 8 9 + / 4 5 6 − / 1 2 3 × / 0(跨2列) . ÷
+        num: [
+            { label: '7', mq: ['type', '7'] }, { label: '8', mq: ['type', '8'] }, { label: '9', mq: ['type', '9'] }, { label: '+', mq: ['type', '+'], accent: true },
+            { label: '4', mq: ['type', '4'] }, { label: '5', mq: ['type', '5'] }, { label: '6', mq: ['type', '6'] }, { label: '−', mq: ['type', '-'], accent: true },
+            { label: '1', mq: ['type', '1'] }, { label: '2', mq: ['type', '2'] }, { label: '3', mq: ['type', '3'] }, { label: '×', mq: ['cmd', '\\cdot'], accent: true },
+            { label: '0', mq: ['type', '0'], span: 2 }, { label: '.', mq: ['type', '.'] }, { label: '÷', mq: ['cmd', '\\div'], accent: true }
+        ],
+        // 函数区（4 列 4 行）：sin cos tan x / e π log ln / 幂 n次根 √ x^▯ / |▯| ( ) 分数
+        func: [
+            { label: 'sin', mq: ['type', 'sin('] }, { label: 'cos', mq: ['type', 'cos('] }, { label: 'tan', mq: ['type', 'tan('] }, { label: 'x', mq: ['type', 'x'] },
+            { label: 'e', mq: ['type', 'e'] }, { label: 'π', mq: ['cmd', '\\pi'] }, { label: 'log', mq: ['type', 'log('] }, { label: 'ln', mq: ['type', 'ln('] },
+            { label: '▢^▢', mq: ['cmd', '^'] }, { label: 'ⁿ√', mq: ['cmd', '\\nthroot'] }, { label: '√', mq: ['cmd', '\\sqrt'] }, { label: 'x^▢', mq: ['write', 'x^{ }'] },
+            { label: '|▢|', mq: ['cmd', '|'] }, { label: '(', mq: ['type', '('] }, { label: ')', mq: ['type', ')'] }, { label: '▢/▢', mq: ['cmd', '/'] }
+        ],
+        // 动作区（2 列）：⌫(跨2列) / ↵(跨2列且跨2行) / ← →
+        act: [
+            { label: '⌫', mq: ['keystroke', 'Backspace'], accent: true, span: 2 },
+            { label: '↵', action: 'confirm', accent: true, span: 2, rowSpan: 2 },
+            { label: '←', mq: ['keystroke', 'Left'], accent: true }, { label: '→', mq: ['keystroke', 'Right'], accent: true }
+        ]
+    };
 
     // 缓动函数 easeInOutQuad：t∈[0,1]，先加速后减速，动画更丝滑
     function easeInOutQuad(t) {
@@ -318,6 +326,8 @@
     const state = {
         baseKey: 'x2',          // 当前选中的基函数键（默认 y=x²）
         params: null,           // 解析出的标准形式参数 {a, h, k}
+        decomposable: true,     // 当前函数是否可拆解为基函数的标准变换
+        rawEval: null,          // 不可拆解时保存原函数 (x)=>y，用于静态绘制
         steps: [],              // 变换步骤数组（每步含描述与目标参数快照）
         snapshots: [],          // 每步完成后的参数快照（用于动画插值）
         currentStep: -1,        // 当前已完成到的步骤索引（-1 表示尚未开始）
@@ -602,13 +612,37 @@
         ctx.restore();                               // 恢复绘图状态
     }
 
+    // 绘制不可拆解时的原函数静态曲线（直接用 evalFn(x) 求值，霓虹发光）
+    function drawRawCurve(evalFn, style) {
+        const w = dom.canvas.getBoundingClientRect().width;  // 画布宽
+        ctx.save();                                  // 保存绘图状态
+        ctx.strokeStyle = style;                     // 线条颜色
+        ctx.lineWidth = 3;                           // 发光主线更粗
+        ctx.shadowColor = style;                     // 外发光颜色
+        ctx.shadowBlur = CONFIG.glowBlur;            // 外发光模糊半径
+        ctx.beginPath();                             // 开始路径
+        let started = false;                         // 是否已落笔
+        for (let px = 0; px <= w; px += CONFIG.plotStepPx) {
+            const y = evalFn(toMathX(px));           // 直接求原函数值
+            if (!isFinite(y)) { started = false; continue; } // 跳过非有限值（断点）
+            const sy = toScreenY(y);                 // 转屏幕 y
+            if (!started) { ctx.moveTo(px, sy); started = true; } // 起笔
+            else ctx.lineTo(px, sy);                 // 连线
+        }
+        ctx.stroke();                                // 描边
+        ctx.restore();                               // 恢复绘图状态
+    }
+
     // 绘制鼠标悬停的十字准星与坐标/函数值
     function drawHover() {
         if (!state.mouse.inside || state.mouse.x === null) return; // 鼠标不在画布内则跳过
         const px = state.mouse.x, py = state.mouse.y; // 鼠标像素坐标
         const mx = toMathX(px);                       // 对应数学 x
         const p = state.anim.current || lastSnapshot(); // 当前显示的曲线参数
-        const my = p ? evalTransformed(p, mx) : toMathY(py); // 曲线在该 x 的函数值
+        // 不可拆解时直接用原函数求值，否则用变换参数求值
+        const my = (!state.decomposable && state.rawEval)
+            ? state.rawEval(mx)
+            : (p ? evalTransformed(p, mx) : toMathY(py));
 
         ctx.save();
         ctx.strokeStyle = 'rgba(57,211,255,0.4)';     // 准星颜色（冰蓝）
@@ -682,10 +716,15 @@
             drawCurve(state.anim.from, CONFIG.neonAccent, { alpha: 0.25 * (1 - t), drawn: state.anim.from.drawn });
         }
 
-        // 当前曲线：用实时插值参数（动画中）或最后快照（静止）绘制霓虹发光曲线
-        const cur = state.anim.current || lastSnapshot(); // 当前参数
-        if (state.currentStep >= 0 || state.anim.running) {
-            drawCurve(cur, CONFIG.neon, { glow: true, drawn: cur.drawn }); // 霓虹发光主曲线
+        if (!state.decomposable && state.rawEval) {
+            // 不可拆解：静态绘制原函数（不做分步动画）
+            drawRawCurve(state.rawEval, CONFIG.neon);
+        } else {
+            // 可拆解：用实时插值参数（动画中）或最后快照（静止）绘制霓虹发光曲线
+            const cur = state.anim.current || lastSnapshot(); // 当前参数
+            if (state.currentStep >= 0 || state.anim.running) {
+                drawCurve(cur, CONFIG.neon, { glow: true, drawn: cur.drawn }); // 霓虹发光主曲线
+            }
         }
 
         drawVertexFlash();                           // 顶点闪烁（若激活）
@@ -811,9 +850,9 @@
         dom.btnNext.disabled = state.currentStep >= state.steps.length - 1;  // 末步时禁用下一步
     }
 
-    // 重新解析输入并重建步骤（输入框或基函数变化时调用）
+    // 重新解析输入并重建步骤（数学区编辑或基函数变化时调用）
     function reparse() {
-        const raw = dom.targetInput.value;            // 读取输入
+        const raw = dom.targetInput.value;            // 读取隐藏域中的 math.js 表达式
         dom.parseError.classList.add('hidden');       // 先隐藏错误
         try {
             const expr = sanitizeExpr(raw);           // 清洗表达式
@@ -822,10 +861,18 @@
             [0, 1, -1, 2].forEach((x) => {
                 if (!isFinite(evalFn(x))) throw new Error('函数值无效'); // 非有限值视为非法
             });
-            const params = fitParams(state.baseKey, evalFn); // 反推参数
-            // 校验拟合是否吻合：抽样比较拟合曲线与原函数
-            verifyFit(evalFn, params);                // 拟合校验（不吻合给出提示）
+            const params = fitParams(state.baseKey, evalFn); // 反推标准变换参数
+            const maxErr = fitError(evalFn, params);  // 拟合误差：判断能否拆解为标准变换
+            renderFormulaPreview(expr);               // 刷新公式预览
 
+            if (maxErr > 0.05) {                      // 偏差过大：无法拆解为标准变换
+                showUndecomposable(expr, evalFn);     // 进入"静态绘制 + 无法拆解提示"分支
+                return;                               // 不再构建步骤动画
+            }
+
+            // 可拆解：正常构建步骤并演示
+            state.decomposable = true;                // 标记可拆解
+            state.rawEval = null;                     // 清除静态绘制函数
             state.params = params;                    // 保存参数
             state.steps = buildSteps(state.baseKey, params); // 构建步骤
             state.snapshots = state.steps.map((s) => s.snapshot); // 提取快照序列
@@ -836,11 +883,9 @@
             state.vertexFlash.active = false;         // 关闭顶点闪烁
             dom.btnPlay.textContent = '▶';            // 复位播放图标
 
-            renderFormulaPreview(expr);               // 刷新公式预览
             renderStepList();                         // 渲染步骤列表
             updateButtons();                          // 刷新按钮
-            // 默认先展示第一步「本体现身」
-            animateTo(0);
+            animateTo(0);                             // 默认先展示第一步「本体现身」
         } catch (e) {
             // 解析失败：显示友好错误，不中断页面
             dom.parseError.textContent = '⚠️ 无法解析该函数，请检查表达式（如 -2(x-1)^2+3）';
@@ -848,18 +893,35 @@
         }
     }
 
-    // 拟合校验：若拟合参数还原的曲线与原函数偏差过大，提示为近似拆解
-    function verifyFit(evalFn, params) {
+    // 无法拆解分支：清空步骤、静态绘制原函数、给出明确提示
+    function showUndecomposable(expr, evalFn) {
+        state.decomposable = false;                   // 标记不可拆解
+        state.rawEval = evalFn;                       // 保存原函数用于静态绘制
+        state.params = null;                          // 不再有标准变换参数
+        state.steps = [];                             // 清空步骤
+        state.snapshots = [];                         // 清空快照
+        state.currentStep = -1;                       // 重置进度
+        state.anim.running = false;                   // 停止动画
+        state.anim.current = null;                    // 清空当前帧参数
+        state.anim.playingAll = false;                // 取消连续播放
+        state.vertexFlash.active = false;             // 关闭顶点闪烁
+        dom.btnPlay.textContent = '▶';                // 复位播放图标
+        renderStepList();                             // 渲染（空）步骤列表
+        updateButtons();                              // 刷新按钮（首末步禁用）
+        updateDataPanelRaw(expr);                     // 数据面板显示简化信息
+        dom.parseError.textContent = 'ℹ️ 该函数无法拆解为基本函数的标准变换，已静态绘制原函数图像';
+        dom.parseError.classList.remove('hidden');    // 显示提示
+    }
+
+    // 拟合误差：拟合参数还原的曲线与原函数的最大抽样偏差（纯计算，无副作用）
+    function fitError(evalFn, params) {
         let maxErr = 0;                               // 最大偏差
         for (let x = -3; x <= 3; x += 0.5) {          // 抽样比较
             const approx = evalTransformed({ ha: params.h, aa: params.a, ka: params.k }, x); // 拟合值
             const real = evalFn(x);                   // 真实值
             if (isFinite(real)) maxErr = Math.max(maxErr, Math.abs(approx - real)); // 更新偏差
         }
-        if (maxErr > 0.05) {                          // 偏差超过阈值
-            dom.parseError.textContent = 'ℹ️ 该函数非标准形式，已按最接近的标准变换近似演示';
-            dom.parseError.classList.remove('hidden'); // 显示近似提示（非错误）
-        }
+        return maxErr;                                // 返回最大偏差供调用方决策
     }
 
     // 用 KaTeX 渲染输入框对应的公式预览
@@ -903,66 +965,104 @@
         }
     }
 
-    // =====================================================================
-    // 虚拟数学键盘模块：点击按键往显示框插入字符，复用 reparse() 主链路
-    // =====================================================================
-
-    let kbCaret = dom.targetInput.value.length; // 虚拟光标位置（字符索引），初始指向末尾
-
-    // 渲染虚拟键盘：根据 KEYBOARD_KEYS 数据生成按钮网格
-    function renderKeyboard() {
-        const grid = document.createElement('div'); // 网格容器
-        grid.className = 'kb-grid';                  // 套用 6 列网格样式
-        KEYBOARD_KEYS.forEach((key) => {
-            const btn = document.createElement('button'); // 创建按键
-            btn.type = 'button';                          // 避免触发表单提交
-            btn.textContent = key.label;                  // 按键显示文字
-            btn.className = 'kb-key' + (key.accent ? ' kb-accent' : ''); // 基础样式 + 强调色
-            if (key.disabled) {                           // 预留键：灰显且不可点击
-                btn.disabled = true;                      // 禁用
-                btn.title = '后续版本支持';                // 悬停提示
-            } else {
-                btn.addEventListener('click', () => handleKeyPress(key)); // 绑定点击处理
-            }
-            grid.appendChild(btn);                        // 加入网格
-        });
-        dom.mathKeyboard.innerHTML = '';                  // 清空旧内容
-        dom.mathKeyboard.appendChild(grid);               // 挂载键盘网格
-    }
-
-    // 从输入框读取真实光标位置，同步到虚拟光标（手动输入/点击显示框时调用）
-    function syncCaretFromInput() {
-        const pos = dom.targetInput.selectionStart;       // 读取真实光标
-        if (pos !== null && pos !== undefined) kbCaret = pos; // 同步到虚拟光标
-    }
-
-    // 处理一次按键：插入字符 / 退格 / 清空 / 左右移动光标
-    function handleKeyPress(key) {
-        const val = dom.targetInput.value;                // 当前表达式文本
-        let caret = Math.min(Math.max(kbCaret, 0), val.length); // 把光标钳制在合法范围
-        if (key.action === 'clear') {                     // 清空整个表达式
-            dom.targetInput.value = '';
-            caret = 0;
-        } else if (key.action === 'backspace') {          // 退格：删除光标前一个字符
-            if (caret > 0) {
-                dom.targetInput.value = val.slice(0, caret - 1) + val.slice(caret);
-                caret -= 1;
-            }
-        } else if (key.action === 'caretLeft') {          // 光标左移一格
-            caret = Math.max(0, caret - 1);
-        } else if (key.action === 'caretRight') {         // 光标右移一格
-            caret = Math.min(val.length, caret + 1);
-        } else if (key.insert !== undefined) {            // 在光标处插入字符
-            dom.targetInput.value = val.slice(0, caret) + key.insert + val.slice(caret);
-            caret += key.insert.length;                   // 光标后移到插入内容之后
-        }
-        kbCaret = caret;                                  // 更新虚拟光标
-        // 把光标定位回显示框（桌面端显示闪烁光标作为反馈；readonly 下不弹移动端键盘）
+    // 数据面板（不可拆解分支）：只显示解析式与"非标准函数"说明
+    function updateDataPanelRaw(expr) {
         try {
-            dom.targetInput.focus({ preventScroll: true });
-            dom.targetInput.setSelectionRange(caret, caret);
-        } catch (e) { /* 个别浏览器 readonly 不支持 setSelectionRange，忽略即可 */ }
-        reparse();                                        // 复用主链路：解析 → 重建步骤 → 动画
+            const tex = math.parse(expr).toTex({ implicit: 'hide' }); // 转 LaTeX
+            katex.render('y = ' + tex, dom.dataExpr, { throwOnError: false }); // 渲染解析式
+        } catch (e) { dom.dataExpr.textContent = '—'; }
+        dom.vertexLabel.textContent = '类型';                          // 标签改为"类型"
+        dom.dataVertex.textContent = '非标准函数';                     // 说明非标准
+        dom.dataAxis.textContent = '无法拆解为基本函数的标准变换';      // 说明不可拆解
+    }
+
+    // =====================================================================
+    // 虚拟数学键盘模块（MathQuill）：点击按键操作数学区，LaTeX→表达式→reparse
+    // =====================================================================
+
+    let mathField = null;          // MathQuill 数学区实例
+    let editTimer = null;          // 数学区编辑后的防抖计时器
+
+    // 把 MathQuill 的 LaTeX 转换成 math.js 可解析的表达式串
+    function latexToExpr(latex) {
+        let s = latex;                                              // 待转换串
+        s = s.replace(/\\left\|([^|]*)\\right\|/g, 'abs($1)');      // 绝对值 |A| → abs(A)
+        s = s.replace(/\\left/g, '').replace(/\\right/g, '');       // 去掉 \left \right（保留括号）
+        let prev;                                                   // 上一轮结果（用于循环到稳定）
+        do { prev = s; s = s.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '(($1)/($2))'); } while (s !== prev); // 分数
+        s = s.replace(/\\sqrt\[([^\]]*)\]\{([^{}]*)\}/g, 'nthRoot(($2),($1))');          // n 次根
+        do { prev = s; s = s.replace(/\\sqrt\{([^{}]*)\}/g, 'sqrt(($1))'); } while (s !== prev); // 平方根
+        do { prev = s; s = s.replace(/\^\{([^{}]*)\}/g, '^($1)'); } while (s !== prev);  // 上标 ^{A} → ^(A)
+        s = s.replace(/\\sin/g, 'sin').replace(/\\cos/g, 'cos').replace(/\\tan/g, 'tan'); // 三角函数
+        s = s.replace(/\\ln/g, 'log').replace(/\\log/g, 'log10'); // ln→自然对数 log；log→以10为底 log10
+        s = s.replace(/\\pi/g, 'pi');                              // 圆周率
+        s = s.replace(/\\cdot/g, '*').replace(/\\times/g, '*').replace(/\\div/g, '/'); // 乘除符号
+        s = s.replace(/_\{[^{}]*\}/g, '');                         // 去掉下标（如 log 的底数标注）
+        s = s.replace(/[{}]/g, '');                                // 去掉残留花括号
+        s = s.replace(/\\,/g, '').replace(/\s+/g, ' ').trim();     // 去掉细间距与多余空白
+        return s;                                                  // 返回 math.js 表达式
+    }
+
+    // MathQuill 编辑回调：取 LaTeX → 转表达式 → 写入隐藏域 → 防抖后解析
+    function onMathEdit() {
+        if (!mathField) return;                                    // 实例未就绪
+        dom.targetInput.value = latexToExpr(mathField.latex());    // 同步到隐藏域
+        clearTimeout(editTimer);                                   // 清除上次计时
+        editTimer = setTimeout(reparse, 200);                      // 200ms 防抖后解析
+    }
+
+    // 初始化 MathQuill 数学区，并填入默认示例
+    function initMathField() {
+        const MQ = MathQuill.getInterface(2);                      // 取 MathQuill v2 接口
+        mathField = MQ.MathField(document.getElementById('mathField'), {
+            spaceBehavesLikeTab: true,                             // 空格如 Tab，便于跳出占位框
+            handlers: { edit: onMathEdit }                         // 每次编辑触发回调
+        });
+        mathField.latex('-2\\left(x-1\\right)^2+3');               // 默认示例（与隐藏域一致）
+    }
+
+    // 渲染一个分区的按键到指定容器，按 span/rowSpan 设置跨格
+    function renderZone(keys, className) {
+        const zone = document.createElement('div');                // 分区容器
+        zone.className = className;                                 // 套用对应网格样式
+        keys.forEach((key) => {
+            const btn = document.createElement('button');          // 创建按键
+            btn.type = 'button';                                   // 避免表单提交
+            btn.textContent = key.label;                           // 按键文字
+            btn.className = 'kb-key' + (key.accent ? ' kb-accent' : ''); // 基础 + 强调色
+            if (key.span) btn.style.gridColumn = 'span ' + key.span;     // 跨列（如 0、⌫、↵）
+            if (key.rowSpan) btn.style.gridRow = 'span ' + key.rowSpan;  // 跨行（如 ↵）
+            btn.addEventListener('click', () => handleKeyPress(key));    // 绑定点击
+            zone.appendChild(btn);                                 // 加入分区
+        });
+        return zone;                                               // 返回分区元素
+    }
+
+    // 渲染整套键盘：三区横向排布（数字区 | 函数区 | 动作区）
+    function renderKeyboard() {
+        const wrap = document.createElement('div');                // 三区外层
+        wrap.className = 'kb-zones';                                // 横向 flex 布局
+        wrap.appendChild(renderZone(KEYBOARD_KEYS.num, 'kb-num'));  // 数字区
+        wrap.appendChild(renderZone(KEYBOARD_KEYS.func, 'kb-func')); // 函数区
+        wrap.appendChild(renderZone(KEYBOARD_KEYS.act, 'kb-act'));  // 动作区
+        dom.mathKeyboard.innerHTML = '';                           // 清空旧内容
+        dom.mathKeyboard.appendChild(wrap);                        // 挂载键盘
+    }
+
+    // 处理一次按键：把动作派发给 MathQuill 数学区
+    function handleKeyPress(key) {
+        if (!mathField) return;                                    // 实例未就绪则忽略
+        if (key.action === 'confirm') {                            // ↵：确认（失焦并立即解析）
+            mathField.blur();
+            reparse();
+            return;
+        }
+        const [method, arg] = key.mq;                              // 解构 MathQuill 指令
+        if (method === 'type') mathField.typedText(arg);           // 按字符键入
+        else if (method === 'cmd') mathField.cmd(arg);             // 插入命令/模板
+        else if (method === 'write') mathField.write(arg);         // 写入 LaTeX 片段
+        else if (method === 'keystroke') mathField.keystroke(arg); // 模拟按键（退格/移光标）
+        mathField.focus();                                         // 保持数学区聚焦，便于连续输入
     }
 
     // =====================================================================
@@ -977,16 +1077,7 @@
         });
     });
 
-    // 函数输入框：输入时实时重新解析（带防抖以兼顾性能）
-    let inputTimer = null;                            // 防抖计时器
-    dom.targetInput.addEventListener('input', () => {
-        clearTimeout(inputTimer);                     // 清除上次计时
-        inputTimer = setTimeout(reparse, 350);        // 350ms 后重新解析
-    });
-    // 点击显示框时同步虚拟光标，便于键盘从点击处插入字符
-    ['click', 'select'].forEach((ev) => {
-        dom.targetInput.addEventListener(ev, syncCaretFromInput);
-    });
+    // 注：目标函数现由 MathQuill 数学区驱动，编辑回调 onMathEdit 已负责触发解析
 
     // 上一步按钮
     dom.btnPrev.addEventListener('click', () => {
@@ -1066,7 +1157,8 @@
     // =====================================================================
     function init() {
         resizeCanvas();                               // 初始化画布尺寸
-        renderKeyboard();                             // 渲染虚拟数学键盘
+        initMathField();                              // 初始化 MathQuill 数学区
+        renderKeyboard();                             // 渲染虚拟数学键盘（三区）
         requestAnimationFrame(loop);                  // 启动主循环
         reparse();                                    // 解析默认示例并演示
     }
