@@ -81,7 +81,8 @@
         .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; } /* 禁用态 */
 
         /* ---- MathQuill 可编辑数学区：适配深色霓虹主题 ---- */
-        #mathField { display: block; width: 100%; min-height: 1.9rem; }   /* 占满输入行 */
+        #mathField { display: flex; align-items: center; width: 100%; min-height: 1.9rem; }   /* 占满输入行，并让内部可编辑区垂直居中（未输入时光标也居中） */
+        #mathField .mq-editable-field { width: 100%; }   /* 可编辑区撑满宽度，配合 flex 居中 */
         .mq-editable-field, .mq-math-mode {
             border: none !important;                          /* 去掉默认边框 */
             background: transparent !important;               /* 透明底融入深色面板 */
@@ -159,6 +160,11 @@
                     <label class="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white/5">
                         <input type="radio" name="baseFunc" value="x3" class="accent-neonpink" />
                         <span>y = x³</span>
+                    </label>
+                    <!-- 绝对值基函数：支持 y=a|x-h|+k 的分步变换动画 -->
+                    <label class="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-white/5">
+                        <input type="radio" name="baseFunc" value="abs" class="accent-neonpink" />
+                        <span>y = |x|</span>
                     </label>
                 </div>
             </section>
@@ -317,7 +323,8 @@
     const BASE_FUNCS = {
         x:  { name: 'x',  power: 1, latex: 'y=x',   f: (x) => x },          // 一次函数
         x2: { name: 'x²', power: 2, latex: 'y=x^2', f: (x) => x * x },      // 二次函数
-        x3: { name: 'x³', power: 3, latex: 'y=x^3', f: (x) => x * x * x }   // 三次函数
+        x3: { name: 'x³', power: 3, latex: 'y=x^3', f: (x) => x * x * x },  // 三次函数
+        abs:{ name: '|x|', power: 'abs', latex: 'y=|x|', f: (x) => Math.abs(x) } // 绝对值函数（V 形折线）
     };
 
     // =====================================================================
@@ -404,6 +411,18 @@
     // 思路：把 g(x) 视为多项式，用有限差分求系数后换算到顶点式
     function fitParams(baseKey, evalFn) {
         const power = BASE_FUNCS[baseKey].power;  // 基函数次数
+        if (power === 'abs') {
+            // 绝对值族 g(x)=a|x-h|+k：左右两支是斜率为 ±a 的直线，交点即顶点 (h,k)
+            const slopeR = (evalFn(10) - evalFn(5)) / 5;   // 右支斜率（远离顶点处采样）即系数 a
+            const slopeL = (evalFn(-5) - evalFn(-10)) / 5; // 左支斜率为 -a
+            const a = slopeR;                              // 右支斜率即纵向伸缩/翻转系数 a
+            const bR = evalFn(5) - slopeR * 5;             // 右支直线截距
+            const bL = evalFn(-5) - slopeL * (-5);         // 左支直线截距
+            // 两支直线交点横坐标即顶点 h（两斜率相等说明退化为直线，置 h=0 待后续误差校验剔除）
+            const h = approxEqual(slopeR - slopeL, 0) ? 0 : (bL - bR) / (slopeR - slopeL);
+            const k = evalFn(h);                           // 顶点纵坐标 = g(h)
+            return { a, h, k };                            // 返回标准变换参数
+        }
         if (power === 1) {
             // 一次函数：g(x)=A·x+B；横向平移对直线冗余，故 h=0，k=B
             const B = evalFn(0);                  // 截距
@@ -462,7 +481,7 @@
         // 第三步：纵向伸缩与翻转（仅当 a 不等于 1 时）
         if (!approxEqual(a, 1)) {
             const parts = [];                       // 组合提示文字
-            if (a < 0) parts.push(power === 2 ? '系数为负：开口向下' : '系数为负：关于 x 轴翻转'); // 翻转说明
+            if (a < 0) parts.push((power === 2 || power === 'abs') ? '系数为负：开口向下' : '系数为负：关于 x 轴翻转'); // 翻转说明（二次/绝对值为开口翻转）
             const absA = Math.abs(a);               // 伸缩倍数
             if (!approxEqual(absA, 1)) {
                 // 伸缩说明：>1 为拉伸，<1 为压缩
@@ -850,6 +869,32 @@
         dom.btnNext.disabled = state.currentStep >= state.steps.length - 1;  // 末步时禁用下一步
     }
 
+    // 在所有基函数中寻找能拟合当前函数的最佳基（仅在当前选中基函数拟合失败时调用）
+    // 作用：让用户输入 |x| 等绝对值函数时，即便没手动切换基函数也能自动匹配并演示动画
+    // 注意：只有在当前基拟合失败后才搜索，因此不会改变已能正常拆解函数的既有行为
+    function findBestBase(evalFn) {
+        const prevBase = state.baseKey;               // 暂存当前基函数，便于失败时恢复
+        let best = null;                              // 记录最佳候选 { key, params, maxErr }
+        Object.keys(BASE_FUNCS).forEach((key) => {    // 遍历所有基函数逐一试拟合
+            state.baseKey = key;                      // 临时切换基函数（fitError 内部依赖它求值）
+            const params = fitParams(key, evalFn);    // 用该基函数反推标准变换参数
+            // 参数必须均为有限数，否则视为退化/拟合失败（如除零产生的 Infinity/NaN）
+            if (![params.a, params.h, params.k].every(isFinite)) return;
+            const err = fitError(evalFn, params);     // 计算该基函数的拟合误差
+            if (err <= 0.05 && (!best || err < best.maxErr)) {
+                best = { key, params, maxErr: err };  // 误差达标且更优则更新最佳候选
+            }
+        });
+        state.baseKey = prevBase;                     // 恢复原基函数，是否切换交由调用方决定
+        return best;                                  // 返回最佳基（都不达标则为 null）
+    }
+
+    // 同步左侧"基本函数选择"单选框到指定基函数，保持 UI 与状态一致
+    function syncBaseRadio(key) {
+        const radio = document.querySelector(`input[name="baseFunc"][value="${key}"]`); // 找到对应单选框
+        if (radio) radio.checked = true;             // 选中它
+    }
+
     // 重新解析输入并重建步骤（数学区编辑或基函数变化时调用）
     function reparse() {
         const raw = dom.targetInput.value;            // 读取隐藏域中的 math.js 表达式
@@ -861,13 +906,23 @@
             [0, 1, -1, 2].forEach((x) => {
                 if (!isFinite(evalFn(x))) throw new Error('函数值无效'); // 非有限值视为非法
             });
-            const params = fitParams(state.baseKey, evalFn); // 反推标准变换参数
-            const maxErr = fitError(evalFn, params);  // 拟合误差：判断能否拆解为标准变换
             renderFormulaPreview(expr);               // 刷新公式预览
 
-            if (maxErr > 0.05) {                      // 偏差过大：无法拆解为标准变换
-                showUndecomposable(expr, evalFn);     // 进入"静态绘制 + 无法拆解提示"分支
-                return;                               // 不再构建步骤动画
+            // 用当前选中的基函数拟合标准变换参数，并评估拟合误差
+            let params = fitParams(state.baseKey, evalFn); // 反推标准变换参数
+            let maxErr = fitError(evalFn, params);    // 拟合误差：判断能否拆解为标准变换
+
+            if (maxErr > 0.05) {                      // 当前基函数拟合失败：尝试自动匹配其它基函数（含 |x|）
+                const better = findBestBase(evalFn);  // 在所有基函数里找拟合最好的一个
+                if (better) {                         // 找到可拆解的基函数
+                    state.baseKey = better.key;       // 切换到匹配的基函数
+                    syncBaseRadio(better.key);        // 同步左侧单选框 UI
+                    params = better.params;           // 采用其参数
+                    maxErr = better.maxErr;           // 采用其误差
+                } else {                              // 所有基函数都无法拟合
+                    showUndecomposable(expr, evalFn); // 进入"静态绘制 + 无法拆解提示"分支
+                    return;                           // 不再构建步骤动画
+                }
             }
 
             // 可拆解：正常构建步骤并演示
@@ -949,8 +1004,8 @@
         } catch (e) { dom.dataExpr.textContent = '—'; }
 
         // 顶点 / 拐点
-        if (power === 2) {
-            dom.vertexLabel.textContent = '顶点';                      // 二次函数称顶点
+        if (power === 2 || power === 'abs') {
+            dom.vertexLabel.textContent = '顶点';                      // 二次函数 / 绝对值函数均称顶点
             dom.dataVertex.textContent = `(${formatNum(h)}, ${formatNum(k)})`;
             // 对称轴与开口方向
             dom.dataAxis.textContent = `x = ${formatNum(h)}；开口${a > 0 ? '向上' : '向下'}`;
